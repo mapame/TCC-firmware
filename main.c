@@ -6,17 +6,20 @@
 #include <errno.h>
 #include <i2c/i2c.h>
 
-#include "esp8266.h"
-#include "ads111x.h"
+#include <esp8266.h>
 
 #include <FreeRTOS.h>
 #include <task.h>
 
-#include "lwip/err.h"
-#include "lwip/sockets.h"
-#include "lwip/sys.h"
-#include "lwip/netdb.h"
-#include "lwip/dns.h"
+#include <lwip/err.h>
+#include <lwip/sockets.h>
+#include <lwip/sys.h>
+#include <lwip/netdb.h>
+#include <lwip/dns.h>
+
+#include <sysparam.h>
+
+#include "ads111x.h"
 
 #define SCL_PIN 5
 #define SDA_PIN 4
@@ -34,9 +37,6 @@
 
 #define RAW_ADC_DATA_BUFFER_SIZE 2000
 #define SEND_BUFFER_SIZE 700
-
-#define WIFI_SSID "Batata"
-#define WIFI_PSK "***REMOVED***"
 
 #define SERVER_ADDR "192.168.1.50"
 #define SERVER_PORT 2048
@@ -218,12 +218,35 @@ void adc_config() {
 }
 
 void user_init(void) {
+	char *wifi_ssid;
+	char *wifi_password;
+	
 	uart_set_baud(0, 115200);
 	
-	struct sdk_station_config wifi_config = {
-		.ssid = WIFI_SSID,
-		.password = WIFI_PSK,
-	};
+	gpio_enable(READY_PIN, GPIO_INPUT);
+	gpio_enable(LED_R_PIN, GPIO_OUTPUT);
+	gpio_enable(LED_G_PIN, GPIO_OUTPUT);
+	gpio_enable(LED_B_PIN, GPIO_OUTPUT);
+	gpio_enable(BTN_PIN, GPIO_INPUT);
+	
+	for(int i = 1; i < 9; i++) {
+		gpio_write(LED_R_PIN, i & 1);
+		gpio_write(LED_G_PIN, ((i >> 1) & 1) == 0);
+		gpio_write(LED_B_PIN, ((i >> 2) & 1) == 0);
+		
+		vTaskDelay(pdMS_TO_TICKS(500));
+	}
+	
+	if(sysparam_get_string("wifi_ap_ssid", &wifi_ssid) != SYSPARAM_OK || strlen(wifi_ssid) < 1
+	|| sysparam_get_string("wifi_ap_password", &wifi_password) != SYSPARAM_OK || strlen(wifi_password) < 8) {
+		printf("WiFi data not avaliable or invalid.\n");
+		return;
+	}
+	
+	struct sdk_station_config wifi_config;
+	
+	strcpy(wifi_config.ssid, wifi_ssid);
+	strcpy(wifi_config.password, wifi_password);
 	
 	sdk_wifi_set_opmode(STATION_MODE);
 	sdk_wifi_station_set_config(&wifi_config);
@@ -240,17 +263,6 @@ void user_init(void) {
 	printf("Configuring ADCs.\n");
 	
 	adc_config();
-	
-	//vTaskDelay(1000 / portTICK_PERIOD_MS);
-	
-	gpio_enable(READY_PIN, GPIO_INPUT);
-	gpio_enable(LED_R_PIN, GPIO_OUTPUT);
-	gpio_enable(LED_G_PIN, GPIO_OUTPUT);
-	gpio_enable(LED_B_PIN, GPIO_OUTPUT);
-	
-	gpio_write(LED_R_PIN, 1);
-	gpio_write(LED_G_PIN, 1);
-	gpio_write(LED_B_PIN, 1);
 	
 	gpio_set_interrupt(READY_PIN, GPIO_INTTYPE_EDGE_POS, ads_ready_handle);
 	
