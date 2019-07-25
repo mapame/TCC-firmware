@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
+#include <math.h>
 #include <i2c/i2c.h>
 
 #include <esp8266.h>
@@ -36,24 +37,16 @@
 #define GAIN_ADC3 ADS111X_GAIN_2V048
 
 #define RAW_ADC_DATA_BUFFER_SIZE 2000
-#define SEND_BUFFER_SIZE 700
-
+#define SEND_QTY 345
 #define SERVER_ADDR "192.168.1.50"
 #define SERVER_PORT 2048
 
-typedef struct send_data {
-	char test;
-	float data[3];
-} send_data_t;
-
 ads111x_dev_t adc1, adc2, adc3;
-
-int16_t raw_adc1, raw_adc2, raw_adc3;
 
 int16_t raw_adc_data[3][RAW_ADC_DATA_BUFFER_SIZE];
 uint16_t raw_adc_data_head, raw_adc_data_tail, raw_adc_data_count, raw_adc_data_lost;
 
-send_data_t send_buffer[SEND_BUFFER_SIZE];
+char send_buffer[1400];
 
 void IRAM ads_ready_handle(uint8_t gpio_num) {
 	//gpio_write(13, 1);
@@ -61,13 +54,14 @@ void IRAM ads_ready_handle(uint8_t gpio_num) {
 	ads111x_start_conversion(&adc2);
 	ads111x_start_conversion(&adc3);
 	
-	raw_adc_data_head = (raw_adc_data_head + 1) % RAW_ADC_DATA_BUFFER_SIZE;
-	if(((raw_adc_data_head + 9) % RAW_ADC_DATA_BUFFER_SIZE) == raw_adc_data_tail) {
+	if(((raw_adc_data_head + 10) % RAW_ADC_DATA_BUFFER_SIZE) == raw_adc_data_tail
+	|| (raw_adc_data_head < raw_adc_data_tail && (raw_adc_data_head + 10) % RAW_ADC_DATA_BUFFER_SIZE > raw_adc_data_tail)) {
 		raw_adc_data_tail = (raw_adc_data_tail + 1) % RAW_ADC_DATA_BUFFER_SIZE;
 		raw_adc_data_lost++;
 	} else {
 		raw_adc_data_count++;
 	}
+	raw_adc_data_head = (raw_adc_data_head + 1) % RAW_ADC_DATA_BUFFER_SIZE;
 	
 	raw_adc_data[0][raw_adc_data_head] = ads111x_get_value(&adc1);
 	raw_adc_data[1][raw_adc_data_head] = ads111x_get_value(&adc2);
@@ -77,7 +71,7 @@ void IRAM ads_ready_handle(uint8_t gpio_num) {
 
 void IRAM blink_task(void *pvParameters) {
 	while(1){
-		gpio_toggle(LED_R_PIN);
+		gpio_toggle(LED_B_PIN);
 		vTaskDelay(pdMS_TO_TICKS(250));
 	}
 }
@@ -113,7 +107,7 @@ void IRAM send_task(void *pvParameters) {
 	server_addr.sin_addr.s_addr = inet_addr(SERVER_ADDR);
 	server_addr.sin_port = htons(SERVER_PORT);
 	
-	while(1){
+	while(true){
 		send_socket = socket(PF_INET, SOCK_STREAM, 0);
 		
 		if(send_socket < 0) {
@@ -133,48 +127,69 @@ void IRAM send_task(void *pvParameters) {
 	printf("Connected to server!\n");
 	
 	//sprintf(aux, "Hello!\n");
-	//send(send_socket, aux, strlen(aux) + 1, 0);
+	//send(send_socket, aux, strlen(aux), 0);
 	
-	float v_adc1, v_adc2, v_adc3;
 	int16_t raw_adc_data_tmp[3];
 	
-	int buffer_counter = 0;
-	uint16_t read_tail;
+	float v;
+	float i[2];
+	float v_rms = 0;
+	float i_rms[2] = {0, 0};
+	float p[2] = {0, 0};
+	
+	int send_counter = 0;
+	uint16_t tail_pos;
 	long int total_data_lost = 0;
-	//tbuf[0] = '\0';
 	
 	while (true) {
 		//gpio_write(12, 1);
 		
-		while(raw_adc_data_count && buffer_counter < SEND_BUFFER_SIZE) {
-			read_tail = raw_adc_data_tail;
-			raw_adc_data_tmp[0] = raw_adc_data[0][read_tail];
-			raw_adc_data_tmp[1] = raw_adc_data[1][read_tail];
-			raw_adc_data_tmp[2] = raw_adc_data[2][read_tail];
+		while(raw_adc_data_count && send_counter < SEND_QTY) {
+			tail_pos = raw_adc_data_tail;
+			raw_adc_data_tmp[0] = raw_adc_data[0][tail_pos];
+			raw_adc_data_tmp[1] = raw_adc_data[1][tail_pos];
+			raw_adc_data_tmp[2] = raw_adc_data[2][tail_pos];
 			
 			raw_adc_data_tail = (raw_adc_data_tail + 1) % RAW_ADC_DATA_BUFFER_SIZE;
 			raw_adc_data_count--;
 			
-			send_buffer[buffer_counter].data[0] = ads111x_gain_values[GAIN_ADC1] / (float)ADS111X_MAX_VALUE * (float)raw_adc_data_tmp[0];
-			send_buffer[buffer_counter].data[1] = ads111x_gain_values[GAIN_ADC2] / (float)ADS111X_MAX_VALUE * (float)raw_adc_data_tmp[1];
-			send_buffer[buffer_counter].data[2] = ads111x_gain_values[GAIN_ADC3] / (float)ADS111X_MAX_VALUE * (float)raw_adc_data_tmp[2];
-			send_buffer[buffer_counter].test = 'A';
+			v = (ads111x_gain_values[GAIN_ADC1] / (float)ADS111X_MAX_VALUE * (float)raw_adc_data_tmp[0]) * 440000.0 / 120.0;
+			i[0] = (ads111x_gain_values[GAIN_ADC2] / (float)ADS111X_MAX_VALUE * (float)raw_adc_data_tmp[1]) * 2000.0 / 23.2;
+			i[1] = (ads111x_gain_values[GAIN_ADC3] / (float)ADS111X_MAX_VALUE * (float)raw_adc_data_tmp[2]) * 2000.0 / 23.2;
 			
-			//v_adc1 = v_adc1 * 440000.0 / 120.0;
-			buffer_counter++;
+			v_rms += powf(v, 2);
+			i_rms[0] += powf(i[0], 2);
+			i_rms[1] += powf(i[1], 2);
+			
+			p[0] += v * i[0];
+			p[1] += v * i[1];
+			
+			send_counter++;
 		}
 		
-		if(buffer_counter >= SEND_BUFFER_SIZE) {
-			if(send(send_socket, send_buffer, buffer_counter * sizeof(send_data_t), 0) > 0) {
-				printf("Sent %d captures! (%d lost, total %ld)\n", buffer_counter, raw_adc_data_lost, total_data_lost);
+		if(send_counter >= SEND_QTY) {
+			v_rms = sqrtf(v_rms / (float) send_counter);
+			i_rms[0] = sqrtf(i_rms[0] / (float) send_counter);
+			i_rms[1] = sqrtf(i_rms[1] / (float) send_counter);
+			p[0] = p[0] / (float) send_counter;
+			p[1] = p[1] / (float) send_counter;
+			
+			sprintf(send_buffer, "v %.4f i0 %.4f i1 %.4f p0 %.4f p1 %.4f l %u\n", v_rms, i_rms[0], i_rms[1], p[0], p[1], (unsigned int) raw_adc_data_lost);
+			
+			if(send(send_socket, send_buffer, strlen(send_buffer), 0) > 0) {
+				printf("Sent %d captures! (%d lost, total %ld)\n", send_counter, raw_adc_data_lost, total_data_lost);
 				total_data_lost += raw_adc_data_lost;
 				raw_adc_data_lost = 0;
 			} else {
-				raw_adc_data_lost += buffer_counter / 3;
+				raw_adc_data_lost += send_counter / 3;
 				printf("Error sending data!\n");
 			}
 			
-			buffer_counter = 0;
+			send_counter = 0;
+			
+			v_rms = 0.0;
+			i_rms[0] = i_rms[1] = 0.0;
+			p[0] = p[1] = 0.0;
 		}
 		//gpio_write(12, 0);
 	}
@@ -245,8 +260,8 @@ void user_init(void) {
 	
 	struct sdk_station_config wifi_config;
 	
-	strcpy(wifi_config.ssid, wifi_ssid);
-	strcpy(wifi_config.password, wifi_password);
+	strcpy((char *)wifi_config.ssid, wifi_ssid);
+	strcpy((char *)wifi_config.password, wifi_password);
 	
 	sdk_wifi_set_opmode(STATION_MODE);
 	sdk_wifi_station_set_config(&wifi_config);
