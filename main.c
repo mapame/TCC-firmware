@@ -20,6 +20,7 @@
 
 #include <sysparam.h>
 
+#include <ds3231/ds3231.h>
 #include "ads111x.h"
 
 #define SCL_PIN 5
@@ -36,60 +37,263 @@
 #define GAIN_ADC2 ADS111X_GAIN_2V048
 #define GAIN_ADC3 ADS111X_GAIN_2V048
 
-#define RAW_ADC_DATA_BUFFER_SIZE 2000
-#define SEND_QTY 345
+#define RAW_ADC_DATA_BUFFER_SIZE 1000
+
+#define PROCESSED_DATA_BUFFER_SIZE 241
+#define EVENT_BUFFER_SIZE 61
+
+#define RTC_UPDATE_PERIOD_S 12 * 3600
+#define RTC_READ_PERIOD_US 30 * 1000000
+
 #define SERVER_ADDR "192.168.1.50"
 #define SERVER_PORT 2048
 
-ads111x_dev_t adc1, adc2, adc3;
+typedef struct power_data_s {
+	uint32_t timestamp;
+	uint32_t samples;
+	uint32_t duration_usec;
+	float vrms[3];
+	float irms[3];
+	float p[3];
+} power_data_t;
 
-int16_t raw_adc_data[3][RAW_ADC_DATA_BUFFER_SIZE];
-uint16_t raw_adc_data_head, raw_adc_data_tail, raw_adc_data_count, raw_adc_data_lost;
+typedef struct power_event_s {
+	uint8_t type;
+	uint8_t channel;
+	uint32_t timestamp;
+	uint32_t duration;
+	float value;
+} power_event_t;
 
-char send_buffer[1400];
+typedef enum {
+	POWER_EVENT_VOLTAGE_SAG,
+	POWER_EVENT_VOLTAGE_SWELL,
+	POWER_EVENT_OVERCURRENT,
+	POWER_EVENT_FREQUENCY_VARIATION,
+} power_event_type_t;
+
+typedef enum {
+	POWER_SINGLE_PHASE,
+	POWER_TWO_PHASE,
+	POWER_TWO_PHASE_COMBINED
+} power_type_t;
+
+typedef enum {
+	SAMPLING_RUNNING = 0,
+	SAMPLING_STOPPED_ON_ERROR,
+	SAMPLING_STOPPED_ON_REQUEST
+} sampling_state_t;
+
+void inline read_rtc();
+
+ads111x_dev_t adc_device[3];
+
+i2c_dev_t rtc_dev = {.addr = DS3231_ADDR, .bus = 0};
+
+sampling_state_t sampling_state;
+
+power_type_t config_measurement_mode;
+uint8_t config_line_frequency;
+uint16_t config_adc_channel_switch_cycles;
+
+uint32_t rtc_time, rtc_time_sysclock_reference;
+
+uint16_t adc_channel_switch_period;
+uint16_t adc_channel_counter;
+uint8_t adc_actual_channel, adc_next_channel;
+
+// adc0: v1(0), v2(1)
+// adc1: i1(2)
+// adc2: i2(3), i3(4)
+
+int16_t raw_adc_data[5][RAW_ADC_DATA_BUFFER_SIZE];
+uint32_t raw_adc_rtc_time[RAW_ADC_DATA_BUFFER_SIZE];
+uint32_t raw_adc_usecs_past_time[RAW_ADC_DATA_BUFFER_SIZE];
+uint16_t raw_adc_data_head, raw_adc_data_tail, raw_adc_data_count;
+
+power_data_t processed_data[PROCESSED_DATA_BUFFER_SIZE];
+uint16_t processed_data_head, processed_data_tail, processed_data_count;
+
+char send_buffer[1024];
 
 void IRAM ads_ready_handle(uint8_t gpio_num) {
-	//gpio_write(13, 1);
-	ads111x_start_conversion(&adc1);
-	ads111x_start_conversion(&adc2);
-	ads111x_start_conversion(&adc3);
-	
-	if(((raw_adc_data_head + 10) % RAW_ADC_DATA_BUFFER_SIZE) == raw_adc_data_tail
-	|| (raw_adc_data_head < raw_adc_data_tail && (raw_adc_data_head + 10) % RAW_ADC_DATA_BUFFER_SIZE > raw_adc_data_tail)) {
-		raw_adc_data_tail = (raw_adc_data_tail + 1) % RAW_ADC_DATA_BUFFER_SIZE;
-		raw_adc_data_lost++;
-	} else {
-		raw_adc_data_count++;
+	if(((raw_adc_data_head + 1) % RAW_ADC_DATA_BUFFER_SIZE) == raw_adc_data_tail) { // Stop sampling and throw buffer full error
+		sampling_state = SAMPLING_STOPPED_ON_ERROR;
+		return;
 	}
+	
+	if(sampling_state == SAMPLING_RUNNING) {
+		if(++adc_channel_counter >= adc_channel_switch_period) {
+			adc_channel_counter = 0;
+			adc_next_channel = (adc_next_channel + 1) % 2;
+			ads111x_set_input_mux(&adc_device[0], (adc_next_channel == 0) ? ADS111X_MUX_0_1 : ADS111X_MUX_2_3);
+			ads111x_set_input_mux(&adc_device[2], (adc_next_channel == 0) ? ADS111X_MUX_0_1 : ADS111X_MUX_2_3);
+		}
+		
+		ads111x_start_conversion(&adc_device[0]);
+		ads111x_start_conversion(&adc_device[1]);
+		ads111x_start_conversion(&adc_device[2]);
+	}
+	
+	uint32_t sysclock_actual_value = sdk_system_get_time();
+	
+	raw_adc_data[(adc_actual_channel == 0) ? 0 : 1][raw_adc_data_head] = ads111x_get_value(&adc_device[0]);
+	raw_adc_data[2][raw_adc_data_head] = ads111x_get_value(&adc_device[1]);
+	raw_adc_data[(adc_actual_channel == 0) ? 3 : 4][raw_adc_data_head] = ads111x_get_value(&adc_device[2]);
+	
+	uint16_t inactive_channel_buffer_position = raw_adc_data_head - adc_channel_switch_period + ((raw_adc_data_head - adc_channel_switch_period < 0) ? RAW_ADC_DATA_BUFFER_SIZE : 0);
+	
+	raw_adc_data[(adc_actual_channel == 0) ? 1 : 0][raw_adc_data_head] = raw_adc_data[(adc_actual_channel == 0) ? 1 : 0][inactive_channel_buffer_position];
+	raw_adc_data[(adc_actual_channel == 0) ? 4 : 3][raw_adc_data_head] = raw_adc_data[(adc_actual_channel == 0) ? 4 : 3][inactive_channel_buffer_position];
+	
+	adc_actual_channel = adc_next_channel;
+	
 	raw_adc_data_head = (raw_adc_data_head + 1) % RAW_ADC_DATA_BUFFER_SIZE;
+	raw_adc_data_count++;
 	
-	raw_adc_data[0][raw_adc_data_head] = ads111x_get_value(&adc1);
-	raw_adc_data[1][raw_adc_data_head] = ads111x_get_value(&adc2);
-	raw_adc_data[2][raw_adc_data_head] = ads111x_get_value(&adc3);
-	//gpio_write(13, 0);
+	raw_adc_rtc_time[raw_adc_data_head] = rtc_time;
+	
+	if(sysclock_actual_value < rtc_time_sysclock_reference)
+		raw_adc_usecs_past_time[raw_adc_data_head] = (((uint32_t)0xFFFFFFFF) - rtc_time_sysclock_reference) + sysclock_actual_value + ((uint32_t)1);
+	else
+		raw_adc_usecs_past_time[raw_adc_data_head] = sysclock_actual_value - rtc_time_sysclock_reference;
+	
+	if(raw_adc_usecs_past_time[raw_adc_data_head] >= RTC_READ_PERIOD_US)
+		read_rtc();
 }
 
-void IRAM blink_task(void *pvParameters) {
-	while(1){
-		gpio_toggle(LED_B_PIN);
-		vTaskDelay(pdMS_TO_TICKS(250));
-	}
-}
-
-void IRAM send_task(void *pvParameters) {
-	int send_socket;
-	struct sockaddr_in server_addr;
-	
-	char aux[64];
-	
-	ads111x_start_conversion(&adc1);
-	ads111x_start_conversion(&adc2);
-	ads111x_start_conversion(&adc3);
-	
+void inline start_sampling() {
 	raw_adc_data_head = 0;
 	raw_adc_data_tail = 0;
 	raw_adc_data_count = 0;
-	raw_adc_data_lost = 0;
+	adc_channel_counter = 0;
+	adc_actual_channel = 0;
+	adc_next_channel = 0;
+	
+	adc_channel_switch_period = 11; // Hardcoded starting value
+	
+	sampling_state = SAMPLING_RUNNING;
+	
+	ads111x_start_conversion(&adc_device[0]);
+	ads111x_start_conversion(&adc_device[1]);
+	ads111x_start_conversion(&adc_device[2]);
+	
+	read_rtc();
+	raw_adc_rtc_time[raw_adc_data_head] = rtc_time;
+	raw_adc_usecs_past_time[raw_adc_data_head] = 0;
+}
+
+void inline read_rtc() {
+	struct tm time;
+	
+	//ds3231_getOscillatorStopFlag(&rtc_dev, &OSF);
+	//ds3231_clearOscillatorStopFlag(&rtc_dev);
+	
+	ds3231_getTime(&rtc_dev, &time);
+	rtc_time_sysclock_reference = sdk_system_get_time();
+	rtc_time = mktime(&time);
+}
+
+void IRAM processing_task(void *pvParameters) {
+	int16_t raw_adc_data_tmp[5];
+	uint32_t raw_adc_usecs_tmp;
+	uint32_t raw_adc_rtc_time_tmp;
+	
+	int raw_adc_data_processed_counter = 0;
+	uint32_t first_sample_usecs;
+	uint32_t first_sample_rtc_time;
+	
+	float v[3];
+	float i[3];
+	
+	float vrms_acc[3] = {0.0, 0.0, 0.0};
+	float irms_acc[3] = {0.0, 0.0, 0.0};
+	float p_acc[3] = {0.0, 0.0, 0.0};
+	
+	processed_data_head = 0;
+	processed_data_tail = 0;
+	processed_data_count = 0;
+	
+	while(true) {
+		if(!raw_adc_data_count) {
+			vTaskDelay(pdMS_TO_TICKS(100));
+			continue;
+		}
+		
+		raw_adc_data_tmp[0] = raw_adc_data[0][raw_adc_data_tail];
+		raw_adc_data_tmp[1] = raw_adc_data[1][raw_adc_data_tail];
+		raw_adc_data_tmp[2] = raw_adc_data[2][raw_adc_data_tail];
+		raw_adc_data_tmp[3] = raw_adc_data[3][raw_adc_data_tail];
+		raw_adc_data_tmp[4] = raw_adc_data[4][raw_adc_data_tail];
+		raw_adc_usecs_tmp = raw_adc_usecs_past_time[raw_adc_data_tail];
+		raw_adc_rtc_time_tmp = raw_adc_rtc_time[raw_adc_data_tail];
+		
+		raw_adc_data_tail = (raw_adc_data_tail + 1) % RAW_ADC_DATA_BUFFER_SIZE;
+		raw_adc_data_count--;
+		
+		if(raw_adc_data_processed_counter == 0) {
+			first_sample_usecs = raw_adc_usecs_tmp;
+			first_sample_rtc_time = raw_adc_rtc_time_tmp;
+		}
+		
+		raw_adc_data_processed_counter++;
+		
+		v[0] = (ads111x_gain_values[GAIN_ADC1] / (float)ADS111X_MAX_VALUE * (float)raw_adc_data_tmp[0]) * 440000.0 / 120.0;
+		v[1] = (ads111x_gain_values[GAIN_ADC1] / (float)ADS111X_MAX_VALUE * (float)raw_adc_data_tmp[1]) * 440000.0 / 120.0;
+		v[2] = v[0] + v[1];
+		
+		i[0] = (ads111x_gain_values[GAIN_ADC2] / (float)ADS111X_MAX_VALUE * (float)raw_adc_data_tmp[2]) * 2000.0 / 23.2;
+		i[1] = (ads111x_gain_values[GAIN_ADC3] / (float)ADS111X_MAX_VALUE * (float)raw_adc_data_tmp[3]) * 2000.0 / 23.2;
+		i[2] = (ads111x_gain_values[GAIN_ADC3] / (float)ADS111X_MAX_VALUE * (float)raw_adc_data_tmp[4]) * 2000.0 / 23.2;
+		
+		vrms_acc[0] += v[0] * v[0];
+		vrms_acc[1] += v[1] * v[1];
+		vrms_acc[2] += v[2] * v[2];
+		
+		irms_acc[0] += i[0] * i[0];
+		irms_acc[1] += i[1] * i[1];
+		irms_acc[2] += i[2] * i[2];
+		
+		p_acc[0] += v[0] * i[0];
+		p_acc[1] += v[1] * i[1];
+		p_acc[2] += v[2] * i[2];
+		
+		if((raw_adc_usecs_tmp - first_sample_usecs) >= 250000 || first_sample_rtc_time != raw_adc_rtc_time_tmp) {
+			processed_data[processed_data_head].timestamp = first_sample_rtc_time + first_sample_usecs / 1000000;
+			processed_data[processed_data_head].duration_usec = raw_adc_usecs_tmp - first_sample_usecs;
+			processed_data[processed_data_head].samples = raw_adc_data_processed_counter;
+			processed_data[processed_data_head].vrms[0] = sqrtf(vrms_acc[0] / (float) raw_adc_data_processed_counter);
+			processed_data[processed_data_head].vrms[1] = sqrtf(vrms_acc[1] / (float) raw_adc_data_processed_counter);
+			processed_data[processed_data_head].vrms[2] = sqrtf(vrms_acc[2] / (float) raw_adc_data_processed_counter);
+			
+			processed_data[processed_data_head].irms[0] = sqrtf(irms_acc[0] / (float) raw_adc_data_processed_counter);
+			processed_data[processed_data_head].irms[1] = sqrtf(irms_acc[1] / (float) raw_adc_data_processed_counter);
+			processed_data[processed_data_head].irms[2] = sqrtf(irms_acc[2] / (float) raw_adc_data_processed_counter);
+			
+			processed_data[processed_data_head].p[0] = p_acc[0] / (float) raw_adc_data_processed_counter;
+			processed_data[processed_data_head].p[1] = p_acc[1] / (float) raw_adc_data_processed_counter;
+			processed_data[processed_data_head].p[2] = p_acc[2] / (float) raw_adc_data_processed_counter;
+			
+			processed_data_head = (processed_data_head + 1) % PROCESSED_DATA_BUFFER_SIZE;
+			if(processed_data_head == processed_data_tail)
+				processed_data_tail = (processed_data_tail + 1) % PROCESSED_DATA_BUFFER_SIZE;
+			else
+				processed_data_count++;
+			
+			vrms_acc[0] = vrms_acc[1] = vrms_acc[2] = 0.0;
+			irms_acc[0] = irms_acc[1] = irms_acc[2] = 0.0;
+			p_acc[0] = p_acc[1] = p_acc[2] = 0.0;
+			
+			raw_adc_data_processed_counter = 0;
+		}
+	}
+}
+
+void IRAM network_task(void *pvParameters) {
+	int send_socket;
+	struct sockaddr_in server_addr;
+	
+	start_sampling();
 	
 	vTaskDelay(pdMS_TO_TICKS(500));
 	printf("Waiting for wireless connection...");
@@ -107,129 +311,103 @@ void IRAM send_task(void *pvParameters) {
 	server_addr.sin_addr.s_addr = inet_addr(SERVER_ADDR);
 	server_addr.sin_port = htons(SERVER_PORT);
 	
-	while(true){
-		send_socket = socket(PF_INET, SOCK_STREAM, 0);
-		
-		if(send_socket < 0) {
-			printf("Failed to create socket.\n");
-			vTaskDelay(pdMS_TO_TICKS(100));
-			continue;
-		}
-		
-		if(connect(send_socket, (struct sockaddr *) &server_addr, sizeof(server_addr)) == 0)
-			break;
-		
-		printf("Failed to connect to server! (%d)\n", errno);
-		close(send_socket);
-		vTaskDelay(pdMS_TO_TICKS(1000));
-	}
-	
-	printf("Connected to server!\n");
-	
-	//sprintf(aux, "Hello!\n");
-	//send(send_socket, aux, strlen(aux), 0);
-	
-	int16_t raw_adc_data_tmp[3];
-	
-	float v;
-	float i[2];
-	float v_rms = 0;
-	float i_rms[2] = {0, 0};
-	float p[2] = {0, 0};
-	
-	int send_counter = 0;
-	uint16_t tail_pos;
-	long int total_data_lost = 0;
-	
-	while (true) {
-		//gpio_write(12, 1);
-		
-		while(raw_adc_data_count && send_counter < SEND_QTY) {
-			tail_pos = raw_adc_data_tail;
-			raw_adc_data_tmp[0] = raw_adc_data[0][tail_pos];
-			raw_adc_data_tmp[1] = raw_adc_data[1][tail_pos];
-			raw_adc_data_tmp[2] = raw_adc_data[2][tail_pos];
+	while(true) {
+		while(true) {
+			send_socket = socket(PF_INET, SOCK_STREAM, 0);
 			
-			raw_adc_data_tail = (raw_adc_data_tail + 1) % RAW_ADC_DATA_BUFFER_SIZE;
-			raw_adc_data_count--;
-			
-			v = (ads111x_gain_values[GAIN_ADC1] / (float)ADS111X_MAX_VALUE * (float)raw_adc_data_tmp[0]) * 440000.0 / 120.0;
-			i[0] = (ads111x_gain_values[GAIN_ADC2] / (float)ADS111X_MAX_VALUE * (float)raw_adc_data_tmp[1]) * 2000.0 / 23.2;
-			i[1] = (ads111x_gain_values[GAIN_ADC3] / (float)ADS111X_MAX_VALUE * (float)raw_adc_data_tmp[2]) * 2000.0 / 23.2;
-			
-			v_rms += powf(v, 2);
-			i_rms[0] += powf(i[0], 2);
-			i_rms[1] += powf(i[1], 2);
-			
-			p[0] += v * i[0];
-			p[1] += v * i[1];
-			
-			send_counter++;
-		}
-		
-		if(send_counter >= SEND_QTY) {
-			v_rms = sqrtf(v_rms / (float) send_counter);
-			i_rms[0] = sqrtf(i_rms[0] / (float) send_counter);
-			i_rms[1] = sqrtf(i_rms[1] / (float) send_counter);
-			p[0] = p[0] / (float) send_counter;
-			p[1] = p[1] / (float) send_counter;
-			
-			sprintf(send_buffer, "v %.4f i0 %.4f i1 %.4f p0 %.4f p1 %.4f l %u\n", v_rms, i_rms[0], i_rms[1], p[0], p[1], (unsigned int) raw_adc_data_lost);
-			
-			if(send(send_socket, send_buffer, strlen(send_buffer), 0) > 0) {
-				printf("Sent %d captures! (%d lost, total %ld)\n", send_counter, raw_adc_data_lost, total_data_lost);
-				total_data_lost += raw_adc_data_lost;
-				raw_adc_data_lost = 0;
-			} else {
-				raw_adc_data_lost += send_counter / 3;
-				printf("Error sending data!\n");
+			if(send_socket < 0) {
+				printf("Failed to create socket.\n");
+				vTaskDelay(pdMS_TO_TICKS(100));
+				continue;
 			}
 			
-			send_counter = 0;
+			if(connect(send_socket, (struct sockaddr *) &server_addr, sizeof(server_addr)) == 0)
+				break;
 			
-			v_rms = 0.0;
-			i_rms[0] = i_rms[1] = 0.0;
-			p[0] = p[1] = 0.0;
+			printf("Failed to connect to server! (%d)\n", errno);
+			close(send_socket);
+			vTaskDelay(pdMS_TO_TICKS(1000));
 		}
-		//gpio_write(12, 0);
+		
+		struct timeval socket_timeout_value = {.tv_sec = 2, .tv_usec = 0};
+		if(setsockopt(send_socket, SOL_SOCKET, SO_SNDTIMEO, &socket_timeout_value, sizeof(socket_timeout_value)) < 0)
+			fprintf(stderr, "Unable to set socket timeout value.\n");
+		
+		printf("Connected to server!\n");
+		
+		//sprintf(send_buffer, "Hello!\n");
+		//send(send_socket, send_buffer, strlen(send_buffer), 0);
+		
+		power_data_t * current_processed_data;
+		
+		while (true) {
+			if(!processed_data_count) {
+				vTaskDelay(pdMS_TO_TICKS(500));
+				continue;
+			}
+			current_processed_data = &processed_data[processed_data_tail];
+			
+			sprintf(send_buffer, "t %u s %u d %u v %.4f %.4f %.4f i %.4f %.4f %.4f p %.4f %.4f %.4f\n", current_processed_data->timestamp, current_processed_data->samples, current_processed_data->duration_usec,
+																						  current_processed_data->vrms[0], current_processed_data->vrms[1], current_processed_data->vrms[2],
+																						  current_processed_data->irms[0], current_processed_data->irms[1], current_processed_data->irms[2],
+																						  current_processed_data->p[0], current_processed_data->p[1], current_processed_data->p[2]);
+			
+			if(send(send_socket, send_buffer, strlen(send_buffer), 0) > 0) {
+				//printf("Data sent!\n");
+				processed_data_tail = (processed_data_tail + 1) % PROCESSED_DATA_BUFFER_SIZE;
+				processed_data_count--;
+			} else {
+				printf("Error sending data!\n");
+				fflush(stdout);
+				break;
+			}
+		}
+		close(send_socket);
+	}
+}
+
+void IRAM blink_task(void *pvParameters) {
+	while(1){
+		gpio_toggle(LED_B_PIN);
+		vTaskDelay(pdMS_TO_TICKS(250));
 	}
 }
 
 void adc_config() {
-	ads111x_init(&adc1, I2C_BUS, ADS111X_ADDR_GND);
-	ads111x_init(&adc2, I2C_BUS, ADS111X_ADDR_VCC);
-	ads111x_init(&adc3, I2C_BUS, ADS111X_ADDR_SDA);
+	ads111x_init(&adc_device[0], I2C_BUS, ADS111X_ADDR_GND);
+	ads111x_init(&adc_device[1], I2C_BUS, ADS111X_ADDR_VCC);
+	ads111x_init(&adc_device[2], I2C_BUS, ADS111X_ADDR_SDA);
 	
-	ads111x_set_data_rate(&adc1, ADS111X_DATA_RATE_860);
-	ads111x_set_data_rate(&adc2, ADS111X_DATA_RATE_860);
-	ads111x_set_data_rate(&adc3, ADS111X_DATA_RATE_860);
+	ads111x_set_data_rate(&adc_device[0], ADS111X_DATA_RATE_860);
+	ads111x_set_data_rate(&adc_device[1], ADS111X_DATA_RATE_860);
+	ads111x_set_data_rate(&adc_device[2], ADS111X_DATA_RATE_860);
 	
-	ads111x_set_input_mux(&adc1, ADS111X_MUX_2_3);
-	ads111x_set_input_mux(&adc2, ADS111X_MUX_0_1);
-	ads111x_set_input_mux(&adc3, ADS111X_MUX_0_1);
+	ads111x_set_input_mux(&adc_device[0], ADS111X_MUX_0_1);
+	ads111x_set_input_mux(&adc_device[1], ADS111X_MUX_0_1);
+	ads111x_set_input_mux(&adc_device[2], ADS111X_MUX_0_1);
 	
-	ads111x_set_gain(&adc1, GAIN_ADC1);
-	ads111x_set_gain(&adc2, GAIN_ADC2);
-	ads111x_set_gain(&adc3, GAIN_ADC3);
+	ads111x_set_gain(&adc_device[0], GAIN_ADC1);
+	ads111x_set_gain(&adc_device[1], GAIN_ADC2);
+	ads111x_set_gain(&adc_device[2], GAIN_ADC3);
 	
-	ads111x_set_comp_high_thresh(&adc1, 0x8000);
-	ads111x_set_comp_high_thresh(&adc2, 0x8000);
-	ads111x_set_comp_high_thresh(&adc3, 0x8000);
-	ads111x_set_comp_low_thresh(&adc1, 0x7FFF);
-	ads111x_set_comp_low_thresh(&adc2, 0x7FFF);
-	ads111x_set_comp_low_thresh(&adc3, 0x7FFF);
+	ads111x_set_comp_high_thresh(&adc_device[0], 0x8000);
+	ads111x_set_comp_high_thresh(&adc_device[1], 0x8000);
+	ads111x_set_comp_high_thresh(&adc_device[2], 0x8000);
+	ads111x_set_comp_low_thresh(&adc_device[0], 0x7FFF);
+	ads111x_set_comp_low_thresh(&adc_device[1], 0x7FFF);
+	ads111x_set_comp_low_thresh(&adc_device[2], 0x7FFF);
 	
-	ads111x_set_comp_queue(&adc1, ADS111X_COMP_QUEUE_1);
-	ads111x_set_comp_queue(&adc2, ADS111X_COMP_QUEUE_1);
-	ads111x_set_comp_queue(&adc3, ADS111X_COMP_QUEUE_1);
+	ads111x_set_comp_queue(&adc_device[0], ADS111X_COMP_QUEUE_1);
+	ads111x_set_comp_queue(&adc_device[1], ADS111X_COMP_QUEUE_1);
+	ads111x_set_comp_queue(&adc_device[2], ADS111X_COMP_QUEUE_1);
 	
-	ads111x_set_comp_polarity(&adc1, ADS111X_COMP_POLARITY_HIGH);
-	ads111x_set_comp_polarity(&adc2, ADS111X_COMP_POLARITY_HIGH);
-	ads111x_set_comp_polarity(&adc3, ADS111X_COMP_POLARITY_HIGH);
+	ads111x_set_comp_polarity(&adc_device[0], ADS111X_COMP_POLARITY_HIGH);
+	ads111x_set_comp_polarity(&adc_device[1], ADS111X_COMP_POLARITY_HIGH);
+	ads111x_set_comp_polarity(&adc_device[2], ADS111X_COMP_POLARITY_HIGH);
 	
-	ads111x_push_config(&adc1);
-	ads111x_push_config(&adc2);
-	ads111x_push_config(&adc3);
+	ads111x_push_config(&adc_device[0]);
+	ads111x_push_config(&adc_device[1]);
+	ads111x_push_config(&adc_device[2]);
 }
 
 void user_init(void) {
@@ -244,12 +422,12 @@ void user_init(void) {
 	gpio_enable(LED_B_PIN, GPIO_OUTPUT);
 	gpio_enable(BTN_PIN, GPIO_INPUT);
 	
-	for(int i = 1; i < 9; i++) {
+	for(int i = 1; i < 17; i++) {
 		gpio_write(LED_R_PIN, i & 1);
 		gpio_write(LED_G_PIN, ((i >> 1) & 1) == 0);
 		gpio_write(LED_B_PIN, ((i >> 2) & 1) == 0);
 		
-		vTaskDelay(pdMS_TO_TICKS(500));
+		vTaskDelay(pdMS_TO_TICKS(250));
 	}
 	
 	if(sysparam_get_string("wifi_ap_ssid", &wifi_ssid) != SYSPARAM_OK || strlen(wifi_ssid) < 1
@@ -283,6 +461,7 @@ void user_init(void) {
 	
 	printf("Starting send task.\n");
 	
-	xTaskCreate(send_task, "send_task", 512, NULL, 2, NULL);
-	xTaskCreate(blink_task, "blink_task", 128, NULL, 1, NULL);
+	xTaskCreate(processing_task, "processing_task", 512, NULL, 3, NULL);
+	xTaskCreate(network_task, "network_task", 512, NULL, 2, NULL);
+	xTaskCreate(blink_task, "blink_task", 256, NULL, 1, NULL);
 }
