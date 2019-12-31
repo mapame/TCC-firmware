@@ -20,61 +20,13 @@
 
 #include "bearssl.h"
 
-#include <sysparam.h>
-
-#include "ota-tftp.h"
-#include "rboot-api.h"
-
 #include <time.h>
 #include "ds3231/ds3231.h"
 #include "ads111x.h"
 
-#define FW_TYPE 1
-#define FW_VERSION "0.0.6"
-
-#define DEBUG
-
-#ifdef DEBUG
-#define debug(fmt, ...) printf(fmt, ## __VA_ARGS__)
-#else
-#define debug(fmt, ...)
-#endif
-
-#define MIN(a,b) (((a)<(b))?(a):(b))
-#define MAX(a,b) (((a)>(b))?(a):(b))
-
-#define SCL_PIN 5
-#define SDA_PIN 4
-#define LED_R_PIN 2
-#define LED_G_PIN 12
-#define LED_B_PIN 13
-#define BTN_PIN 15
-#define READY_PIN 14
-
-#define I2C_BUS 0
-
-#define GAIN_ADC1 ADS111X_GAIN_0V256
-#define GAIN_ADC2 ADS111X_GAIN_2V048
-#define GAIN_ADC3 ADS111X_GAIN_2V048
-
-#define RAW_ADC_DATA_BUFFER_SIZE 1000
-
-#define PROCESSED_DATA_BUFFER_SIZE 121
-#define POWER_EVENT_BUFFER_SIZE 61
-#define INTERNAL_EVENT_BUFFER_SIZE 31
-
-#define RTC_UPDATE_PERIOD_S 12 * 3600
-#define RTC_READ_PERIOD_US 60 * 1000000
-
-#define WAVEFORM_MAX_QTY 50
-
-#define SERVER_PORT 2048
-
-#define CONFIG_NUMBER 21
-#define CONFIG_STR_SIZE 65
-
-#define MAX_DISCONNECTION_TIME_MS 5000
-#define MIN_DISCONNECTION_TIME_MS 200
+#include "common.h"
+#include "configuration.h"
+#include "ota.h"
 
 typedef struct power_data_s {
 	uint32_t timestamp;
@@ -97,15 +49,6 @@ typedef struct internal_event_s {
 	uint8_t type;
 	uint32_t timestamp;
 } internal_event_t;
-
-typedef struct config_metadata_s {
-	char name[33];
-	char type;
-	char default_value[CONFIG_STR_SIZE];
-	uint8_t ext_r;
-	uint8_t ext_w;
-	void *variable;
-} config_metadata_t;
 
 typedef struct opcode_metadata_s {
 	char opcode_text[3];
@@ -164,17 +107,12 @@ typedef enum {
 	SAMPLING_PAUSED_ON_REQUEST
 } sampling_state_t;
 
-void ota_task(void *pvParameters);
-
 void inline read_rtc();
 static int recv_command_line(int s, char *buf, size_t len);
 static uint8_t convert_opcode(char *buf);
 static void compute_hmac(const br_hmac_key_context *hmac_key_ctx, char *output_mac_text, const char *data, size_t len);
 static int validate_hmac(const br_hmac_key_context *hmac_key_ctx, char *data, size_t len);
 static int send_response(int socket_fd, const br_hmac_key_context *hmac_key_ctx, uint8_t opcode, uint32_t timestamp, uint32_t counter, uint8_t response_code, char *parameters);
-static int configuration_read(const char *configuration_name, char *value_buffer);
-static int configuration_write(const char *configuration_name, const char *value_buffer, int external);
-static void load_configuration();
 
 TaskHandle_t processing_task_handle, blink_task_handle;
 
@@ -195,51 +133,6 @@ opcode_metadata_t opcode_metadata_list[OPCODE_NUM] = {
 	{"DD", 3},
 	{"GW", 2},
 	{"BY", 0}
-};
-
-char config_device_id[CONFIG_STR_SIZE];
-char config_wifi_ssid[CONFIG_STR_SIZE];
-char config_wifi_password[CONFIG_STR_SIZE];
-char config_mac_password[CONFIG_STR_SIZE];
-char config_server_ip[CONFIG_STR_SIZE];
-
-int config_use_flash_storage;
-int config_measurement_type;
-int config_channel_switch_cycles;
-int config_power_data_frequency;
-
-float config_current_factors[3];
-float config_voltage_factors[2];
-float config_line_frequency;
-float config_line_frequency_tolerance;
-float config_phase_voltage;
-float config_combined_voltage;
-float config_voltage_tolerance;
-float config_max_phase_current;
-float config_max_combined_current;
-
-config_metadata_t configuration_table[CONFIG_NUMBER] = {
-	{"device_id",					's', "NO_ID",			1, 0, (void*) &config_device_id},
-	{"wifi_ap_ssid",				's', "###NOT_SET###",	1, 1, (void*) &config_wifi_ssid},
-	{"wifi_ap_password",			's', "###NOT_SET###",	0, 1, (void*) &config_wifi_password},
-	{"mac_password",				's', "###NOT_SET###",	0, 0, (void*) &config_mac_password},
-	{"server_ip",					's', "###NOT_SET###",	1, 1, (void*) &config_server_ip},
-	{"use_flash_storage",			'i', "0",				1, 1, (void*) &config_use_flash_storage},
-	{"current_factor1",				'f', "86.21",			1, 1, (void*) &(config_current_factors[0])},
-	{"current_factor2",				'f', "86.21",			1, 1, (void*) &(config_current_factors[1])},
-	{"current_factor3",				'f', "86.21",			1, 1, (void*) &(config_current_factors[2])},
-	{"voltage_factor1",				'f', "3666.67",			1, 1, (void*) &(config_voltage_factors[0])},
-	{"voltage_factor2",				'f', "3666.67",			1, 1, (void*) &(config_voltage_factors[1])},
-	{"power_data_frequency",		'i', "1",				1, 1, (void*) &config_power_data_frequency},
-	{"cycles_per_switching",		'i', "2",				1, 1, (void*) &config_channel_switch_cycles},
-	{"measurement_type",			'i', "3",				1, 1, (void*) &config_measurement_type},
-	{"line_frequency",				'f', "60.0",			1, 1, (void*) &config_line_frequency},
-	{"line_frequency_tolerance",	'f', "5.0",				1, 1, (void*) &config_line_frequency_tolerance},
-	{"phase_voltage",				'f', "127.0",			1, 1, (void*) &config_phase_voltage},
-	{"combined_voltage",			'f', "220.0",			1, 1, (void*) &config_combined_voltage},
-	{"voltage_tolerance",			'f', "5.0",				1, 1, (void*) &config_voltage_tolerance},
-	{"maximum_phase_current",		'f', "50.0",			1, 1, (void*) &config_max_phase_current},
-	{"maximum_combined_current",	'f', "50.0",			1, 1, (void*) &config_max_combined_current},
 };
 
 uint8_t sampling_running;
@@ -271,7 +164,7 @@ uint16_t power_events_data_head, power_events_data_tail, power_events_data_count
 power_event_t internal_events[INTERNAL_EVENT_BUFFER_SIZE];
 uint16_t internal_events_data_head, internal_events_data_tail, internal_events_data_count;
 
-char ota_hash_text[33];
+char received_ota_hash_text[33];
 
 void IRAM ads_ready_handle(uint8_t gpio_num) {
 	if(((raw_adc_data_head + 1) % RAW_ADC_DATA_BUFFER_SIZE) == raw_adc_data_tail) { // Stop sampling on buffer full error
@@ -651,7 +544,7 @@ void network_task(void *pvParameters) {
 						break;
 					}
 					
-					strlcpy(ota_hash_text, received_parameters[0], 33);
+					strlcpy(received_ota_hash_text, received_parameters[0], 33);
 					break;
 				case OP_QUERY_STATUS:
 					sprintf(response_parameters, "%u\t%u\t%u\t%u\t", sampling_running, 25, rtc_oscillator_stopped, processed_data_count);
@@ -689,7 +582,7 @@ void network_task(void *pvParameters) {
 						waveform_buffer[i] = raw_adc_data[input_channel][(raw_adc_start + i) % RAW_ADC_DATA_BUFFER_SIZE];
 					
 					for(int i = 0; i < waveform_qty; i++) {
-						sprintf(response_parameters, "%.4f\t", waveform_buffer[i]);
+						sprintf(response_parameters, "%i\t", waveform_buffer[i]);
 						send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, received_counter, response_code, response_parameters);
 						if(send_result < 0)
 							break;
@@ -736,7 +629,7 @@ void network_task(void *pvParameters) {
 					vTaskDelete(blink_task_handle);
 					vTaskDelay(pdMS_TO_TICKS(500));
 					debug("Starting OTA task.\n");
-					if(xTaskCreate(ota_task, "ota_task", 1280, NULL, 4, NULL) != pdPASS) {
+					if(xTaskCreate(ota_task, "ota_task", 1280, (void*) &received_ota_hash_text, 4, NULL) != pdPASS) {
 						debug("Failed to create OTA task. Restarting...\n");
 						vTaskDelay(pdMS_TO_TICKS(1000));
 						sdk_system_restart();
@@ -874,160 +767,6 @@ static int send_response(int socket_fd, const br_hmac_key_context *hmac_key_ctx,
 	strlcat(send_buffer, aux, 200);
 	
 	return send(socket_fd, send_buffer, strlen(send_buffer), 0);
-}
-
-static int configuration_read(const char *configuration_name, char *value_buffer) {
-	if(!(configuration_name && value_buffer))
-		return -1;
-	
-	for(int i = 0; i < CONFIG_NUMBER; i++)
-		if(!strcmp(configuration_name, configuration_table[i].name)) {
-			if(!configuration_table[i].ext_r)
-				return -3;
-			
-			switch(configuration_table[i].type) {
-				case 's':
-					strlcpy(value_buffer, (char*) configuration_table[i].variable, CONFIG_STR_SIZE);
-					break;
-				case 'i':
-					sprintf(value_buffer, "%d", *((int*) configuration_table[i].variable));
-					break;
-				case 'f':
-					sprintf(value_buffer, "%f", *((float*) configuration_table[i].variable));
-					break;
-			}
-			return 0;
-		}
-	
-	return -2;
-}
-
-static int configuration_write(const char *configuration_name, const char *value_buffer, int external) {
-	if(!(configuration_name && value_buffer))
-		return -1;
-	
-	for(int i = 0; i < CONFIG_NUMBER; i++)
-		if(!strcmp(configuration_name, configuration_table[i].name)) {
-			if(external && (!configuration_table[i].ext_w))
-				return -3;
-			
-			int conversion_result = 0;
-			
-			switch(configuration_table[i].type) {
-				case 's':
-					conversion_result = strlcpy((char*) configuration_table[i].variable, value_buffer, CONFIG_STR_SIZE);
-					break;
-				case 'i':
-					conversion_result = sscanf(value_buffer, "%d", (int*) configuration_table[i].variable);
-					break;
-				case 'f':
-					conversion_result = sscanf(value_buffer, "%f", (float*) configuration_table[i].variable);
-					break;
-				default:
-					break;
-			}
-			
-			if(conversion_result < 1)
-				return -4;
-			
-			if(sysparam_set_string(configuration_name, value_buffer) != SYSPARAM_OK)
-				return -5;
-			
-			return 0;
-		}
-	
-	return -2;
-}
-
-static void load_configuration() {
-	char *value;
-	
-	for(int i = 0; i < CONFIG_NUMBER; i++) {
-		value = NULL;
-		sysparam_get_string(configuration_table[i].name, &value);
-		
-		switch(configuration_table[i].type) {
-			case 's':
-				if(!value || strlcpy((char*) configuration_table[i].variable, value, CONFIG_STR_SIZE) < 1)
-					strlcpy((char*) configuration_table[i].variable, configuration_table[i].default_value, CONFIG_STR_SIZE);
-				break;
-			case 'i':
-				if(!value || sscanf(value, "%d", (int*) configuration_table[i].variable) != 1)
-					sscanf(configuration_table[i].default_value, "%d", (int*) configuration_table[i].variable);
-				break;
-			case 'f':
-				if(!value || sscanf(value, "%f", (float*) configuration_table[i].variable) != 1)
-					sscanf(configuration_table[i].default_value, "%f", (float*) configuration_table[i].variable);
-				break;
-		}
-		
-		if(value)
-			free(value);
-	}
-	
-}
-
-void ota_task(void *pvParameters) {
-	rboot_config conf;
-	uint8_t dest_slot;
-	uint32_t image_length;
-	br_md5_context hash_context;
-	uint8_t hash_result[16];
-	char hash_result_text[33];
-	
-	char aux[3];
-	
-	debug("Starting OTA update...\n");
-	
-	conf = rboot_get_config();
-	
-	if(conf.count < 2) {
-		debug("Only one slot is avaliable, cannot proceed. Restarting...\n");
-		sdk_system_restart();
-	}
-	
-	dest_slot = (conf.current_rom + 1) % conf.count;
-	
-	debug("Image will be flashed into slot %d.\n", dest_slot);
-	
-	if(ota_tftp_download(config_server_ip, 6969, "firmware.bin", 2000, dest_slot, NULL)) {
-		debug("Failed to download image. Restarting...\n");
-		sdk_system_restart();
-	}
-	
-	if(!rboot_verify_image(conf.roms[dest_slot], &image_length, NULL)) {
-		debug("Downloaded image is not valid. Restarting...\n");
-		sdk_system_restart();
-	}
-	
-	debug("Downloaded and flashed a valid image, checking integrity...\n");
-	
-	br_md5_init(&hash_context);
-	
-	rboot_digest_image(conf.roms[dest_slot], image_length, (rboot_digest_update_fn)br_md5_update, &hash_context);
-	
-	br_md5_out(&hash_context, hash_result);
-	
-	hash_result_text[0] = '\0';
-	
-	for(int i = 0; i < 16; i++) {
-		sprintf(aux, "%02hx", hash_result[i]);
-		strlcat(hash_result_text, aux, 33);
-	}
-	
-	if(strcmp(hash_result_text, ota_hash_text)) {
-		debug("Hash does not match. Restarting...\n");
-		sdk_system_restart();
-	}
-	
-	debug("Image hash match, restarting into new slot...\n");
-	
-	conf.current_rom = dest_slot;
-	
-	if(!rboot_set_config(&conf))
-		debug("Failed to set new slot as active.\n");
-	
-	sdk_system_restart();
 }
 
 void IRAM blink_task(void *pvParameters) {
