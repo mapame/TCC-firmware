@@ -1,0 +1,16 @@
+#define INTERNAL_EVENT_BUFFER_SIZE 31
+
+typedef struct internal_event_s {
+	uint8_t type;
+	uint32_t timestamp;
+} internal_event_t;
+
+typedef enum {
+	INTERNAL_EVENT_BUFFER_FULL,
+	INTERNAL_EVENT_LOW_SAMPLING_FREQUENCY,
+	INTERNAL_EVENT_SAMPLING_STOPPED,
+	INTERNAL_EVENT_SEND_TIMEOUT,
+	INTERNAL_EVENT_RESPONSE_TIMEOUT,
+	INTERNAL_EVENT_INVALID_MAC,
+	INTERNAL_EVENT_I2C_ERROR,
+} internal_event_type_t;

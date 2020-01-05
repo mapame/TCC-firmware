@@ -6,9 +6,8 @@
 #include "bearssl.h"
 
 #include "common.h"
+#include "configuration.h"
 #include "ota.h"
-
-extern char config_server_ip[CONFIG_STR_SIZE];
 
 void ota_task(void *pvParameters) {
 	rboot_config conf;
