@@ -15,7 +15,7 @@ uint8_t rtc_oscillator_stopped;
 
 uint32_t rtc_new_time, rtc_new_time_sysclock_reference;
 
-void read_rtc() {
+int read_rtc() {
 	struct tm time;
 	bool osf;
 	
@@ -23,12 +23,29 @@ void read_rtc() {
 	
 	if(osf) {
 		rtc_oscillator_stopped++;
-		return;
+		return -1;
 	}
-	
-	//ds3231_clearOscillatorStopFlag(&rtc_dev);
 	
 	ds3231_getTime(&rtc_dev, &time);
 	rtc_time_sysclock_reference = sdk_system_get_time();
 	rtc_time = mktime(&time);
+	
+	return 0;
+}
+
+void update_rtc(const time_t new_time) {
+	struct tm time;
+	bool osf;
+	
+	ds3231_getOscillatorStopFlag(&rtc_dev, &osf);
+	
+	if(osf) {
+		ds3231_clearOscillatorStopFlag(&rtc_dev);
+		rtc_oscillator_stopped++;
+		return;
+	}
+	
+	gmtime_r(&new_time, &time);
+	
+	ds3231_setTime(&rtc_dev, &time);
 }

@@ -1,4 +1,4 @@
-PROGRAM = esp_firmware
+PROGRAM = matawatt-firmware
 
 FLASH_SIZE = 32
 

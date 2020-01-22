@@ -11,6 +11,7 @@
 #include <task.h>
 
 #include "common.h"
+#include "configuration.h"
 #include "sampling.h"
 #include "power.h"
 
@@ -64,13 +65,13 @@ void power_processing_task(void *pvParameters) {
 		
 		raw_adc_data_processed_counter++;
 		
-		v[0] = (adc_volt_scale[0] * (float)raw_adc_data_tmp[0]) * 440000.0 / 120.0;
-		v[1] = (adc_volt_scale[0] * (float)raw_adc_data_tmp[1]) * 440000.0 / 120.0;
-		v[2] = v[0] + v[1];
+		v[0] = (adc_volt_scale[0] * (float)raw_adc_data_tmp[0]) * config_voltage_factors[0];
+		v[1] = (adc_volt_scale[0] * (float)raw_adc_data_tmp[1]) * config_voltage_factors[1];
+		v[2] = v[0] - v[1];
 		
-		i[0] = (adc_volt_scale[1] * (float)raw_adc_data_tmp[2]) * 2000.0 / 23.2;
-		i[1] = (adc_volt_scale[2] * (float)raw_adc_data_tmp[3]) * 2000.0 / 23.2;
-		i[2] = (adc_volt_scale[2] * (float)raw_adc_data_tmp[4]) * 2000.0 / 23.2;
+		i[0] = (adc_volt_scale[1] * (float)raw_adc_data_tmp[2]) * config_current_factors[0];
+		i[1] = (adc_volt_scale[2] * (float)raw_adc_data_tmp[3]) * config_current_factors[1];
+		i[2] = (adc_volt_scale[2] * (float)raw_adc_data_tmp[4]) * config_current_factors[2];
 		
 		vrms_acc[0] += v[0] * v[0];
 		vrms_acc[1] += v[1] * v[1];
@@ -84,7 +85,7 @@ void power_processing_task(void *pvParameters) {
 		p_acc[1] += v[1] * i[1];
 		p_acc[2] += v[2] * i[2];
 		
-		if((raw_adc_usecs_tmp - first_sample_usecs) >= 250000 || first_sample_rtc_time != raw_adc_rtc_time_tmp) {
+		if((raw_adc_usecs_tmp - first_sample_usecs) >= 1000000 || first_sample_rtc_time != raw_adc_rtc_time_tmp) {
 			processed_data[processed_data_head].timestamp = first_sample_rtc_time + first_sample_usecs / 1000000;
 			processed_data[processed_data_head].duration_usec = raw_adc_usecs_tmp - first_sample_usecs;
 			processed_data[processed_data_head].samples = raw_adc_data_processed_counter;

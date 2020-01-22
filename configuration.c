@@ -22,11 +22,9 @@ float config_current_factors[3];
 float config_voltage_factors[2];
 float config_line_frequency;
 float config_line_frequency_tolerance;
-float config_phase_voltage;
-float config_combined_voltage;
+float config_expected_voltage[2];
 float config_voltage_tolerance;
-float config_max_phase_current;
-float config_max_combined_current;
+float config_max_current[3];
 
 typedef struct config_metadata_s {
 	char name[33];
@@ -49,16 +47,15 @@ const config_metadata_t configuration_table[CONFIG_NUMBER] = {
 	{"current_factor3",				'f', "86.21",			1, 1, (void*) &(config_current_factors[2])},
 	{"voltage_factor1",				'f', "3666.67",			1, 1, (void*) &(config_voltage_factors[0])},
 	{"voltage_factor2",				'f', "3666.67",			1, 1, (void*) &(config_voltage_factors[1])},
-	{"power_data_frequency",		'i', "1",				1, 1, (void*) &config_power_data_frequency},
-	{"cycles_per_switching",		'i', "2",				1, 1, (void*) &config_channel_switch_cycles},
-	{"measurement_type",			'i', "3",				1, 1, (void*) &config_measurement_type},
+	{"channel_switch_cycles",		'i', "0",				1, 1, (void*) &config_channel_switch_cycles},
 	{"line_frequency",				'f', "60.0",			1, 1, (void*) &config_line_frequency},
 	{"line_frequency_tolerance",	'f', "5.0",				1, 1, (void*) &config_line_frequency_tolerance},
-	{"phase_voltage",				'f', "127.0",			1, 1, (void*) &config_phase_voltage},
-	{"combined_voltage",			'f', "220.0",			1, 1, (void*) &config_combined_voltage},
+	{"expected_voltage1",			'f', "127.0",			1, 1, (void*) &config_expected_voltage[0]},
+	{"expected_voltage2",			'f', "127.0",			1, 1, (void*) &config_expected_voltage[1]},
 	{"voltage_tolerance",			'f', "5.0",				1, 1, (void*) &config_voltage_tolerance},
-	{"maximum_phase_current",		'f', "50.0",			1, 1, (void*) &config_max_phase_current},
-	{"maximum_combined_current",	'f', "50.0",			1, 1, (void*) &config_max_combined_current},
+	{"maximum_current1",			'f', "40.0",			1, 1, (void*) &config_max_current[0]},
+	{"maximum_current2",			'f', "40.0",			1, 1, (void*) &config_max_current[1]},
+	{"maximum_current3",			'f', "40.0",			1, 1, (void*) &config_max_current[2]},
 };
 
 

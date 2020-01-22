@@ -48,7 +48,6 @@ char received_ota_hash_text[33];
 void network_task(void *pvParameters) {
 	int socket_fd;
 	struct sockaddr_in server_addr;
-	int last_errno;
 	
 	start_sampling();
 	
@@ -60,7 +59,9 @@ void network_task(void *pvParameters) {
 	}
 	
 	debug("Connected to network!\n");
-	fflush(stdout);
+	#ifdef DEBUG
+		fflush(stdout);
+	#endif
 	
 	bzero(&server_addr, sizeof(server_addr));
 	
@@ -69,7 +70,7 @@ void network_task(void *pvParameters) {
 	server_addr.sin_port = htons(SERVER_PORT);
 	
 	while(true) {
-		last_errno = 0;
+		int last_errno = 0;
 		while(true) {
 			socket_fd = socket(PF_INET, SOCK_STREAM, 0);
 			
@@ -98,11 +99,9 @@ void network_task(void *pvParameters) {
 		struct timeval socket_receive_timeout_value = {.tv_sec = 3, .tv_usec = 0};
 		
 		setsockopt(socket_fd, SOL_SOCKET, SO_SNDTIMEO, &socket_send_timeout_value, sizeof(socket_send_timeout_value));
-		//setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &socket_receive_timeout_value, sizeof(socket_receive_timeout_value));
+		setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &socket_receive_timeout_value, sizeof(socket_receive_timeout_value));
 		
 		br_hmac_key_context hmac_key_ctx;
-		
-		power_data_t *current_processed_data;
 		
 		char aux[100];
 		
@@ -127,7 +126,7 @@ void network_task(void *pvParameters) {
 		int protocol_started = 0;
 		
 		int16_t waveform_buffer[WAVEFORM_MAX_QTY];
-		int input_channel, waveform_qty;
+		unsigned int aux_channel, aux_qty;
 		uint16_t raw_adc_start;
 		
 		unsigned int disconnection_time;
@@ -143,8 +142,10 @@ void network_task(void *pvParameters) {
 			if(received_line_len < 35) // Protocol error - Line too small
 				break;
 			
-			if(validate_hmac(&hmac_key_ctx, receive_buffer, received_line_len)) // Protocol error - Invalid MAC
+			if(validate_hmac(&hmac_key_ctx, receive_buffer, received_line_len)) { // Protocol error - Invalid MAC
+				debug("Invalid MAC.\n");
 				break;
+			}
 			
 			token = strtok_r(receive_buffer, ":", &saveptr); // Opcode
 			if(!token) // Protocol error - Syntax Error
@@ -184,6 +185,8 @@ void network_task(void *pvParameters) {
 			
 			response_code = R_SUCESS;
 			response_parameters[0] = '\0';
+			
+			send_result = -1;
 			
 			switch(received_opcode) {
 				case OP_PROTOCOL_START:
@@ -240,15 +243,81 @@ void network_task(void *pvParameters) {
 					strlcpy(received_ota_hash_text, received_parameters[0], 33);
 					break;
 				case OP_QUERY_STATUS:
-					sprintf(response_parameters, "%u\t%u\t%u\t%u\t", sampling_running, 25, rtc_oscillator_stopped, processed_data_count);
+					sprintf(response_parameters, "%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t", sampling_running, xTaskGetTickCount() / configTICK_RATE_HZ, 25, rtc_oscillator_stopped, 0, 0, power_events_data_count, 0, processed_data_count, 0);
 					
 					break;
 				case OP_GET_DATA:
+					if(sscanf(received_parameters[2], "%u", &aux_qty) != 1) {
+						response_code = R_ERR_INVALID_PARAMETER;
+						break;
+					}
 					
+					if(strcmp(received_parameters[0], "pd") == 0) {
+						if(*received_parameters[1] == 'r') {
+							power_data_t *power_data_ptr = NULL;
+							
+							if(aux_qty > processed_data_count) {
+								response_code = R_ERR_INVALID_PARAMETER;
+								break;
+							}
+							
+							for(int i = 0; i < aux_qty; i++) {
+								power_data_ptr = &processed_data[(processed_data_tail + i) % PROCESSED_DATA_BUFFER_SIZE];
+								sprintf(response_parameters, "%u\t%u\t%u\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t", power_data_ptr->timestamp, power_data_ptr->samples, power_data_ptr->duration_usec, power_data_ptr->vrms[0], power_data_ptr->vrms[1], power_data_ptr->vrms[2], power_data_ptr->irms[0], power_data_ptr->irms[1], power_data_ptr->irms[2], power_data_ptr->p[0], power_data_ptr->p[1], power_data_ptr->p[2]);
+								send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, received_counter, R_SUCESS, response_parameters);
+								if(send_result < 0)
+									break;
+							}
+						} else {
+							response_code = R_ERR_INVALID_PARAMETER;
+							break;
+						}
+					} else {
+						response_code = R_ERR_INVALID_PARAMETER;
+						break;
+					}
 					break;
 				case OP_DELETE_DATA:
-					if(sampling_running && *received_parameters[1] == 'f') {
-						response_code = R_ERR_SAMPLING_RUNNING;
+					if(sscanf(received_parameters[2], "%u", &aux_qty) != 1) {
+						response_code = R_ERR_INVALID_PARAMETER;
+						break;
+					}
+					
+					if(*received_parameters[1] == 'r') {
+						if(strcmp(received_parameters[0], "pd") == 0) {
+							if(aux_qty > processed_data_count) {
+								response_code = R_ERR_INVALID_PARAMETER;
+								break;
+							}
+							
+							processed_data_tail = (processed_data_tail + aux_qty) % PROCESSED_DATA_BUFFER_SIZE;
+							processed_data_count -= aux_qty;
+							
+						} else if(strcmp(received_parameters[0], "pe") == 0) {
+							if(aux_qty > power_events_data_count) {
+								response_code = R_ERR_INVALID_PARAMETER;
+								break;
+							}
+							
+							power_events_data_tail = (power_events_data_tail + aux_qty) % POWER_EVENT_BUFFER_SIZE;
+							power_events_data_count -= aux_qty;
+							
+						} else if(strcmp(received_parameters[0], "ie") == 0) {
+							if(aux_qty > power_events_data_count) {
+								response_code = R_ERR_INVALID_PARAMETER;
+								break;
+							}
+						}
+						
+					} else if(*received_parameters[1] == 'f') {
+						if(sampling_running) {
+							response_code = R_ERR_SAMPLING_RUNNING;
+							break;
+						}
+						
+						response_code = R_ERR_UNSPECIFIED;
+					} else {
+						response_code = R_ERR_INVALID_PARAMETER;
 						break;
 					}
 					
@@ -260,10 +329,10 @@ void network_task(void *pvParameters) {
 					}
 					
 					parameter_parse_result = 0;
-					parameter_parse_result += sscanf(received_parameters[0], "%d", &input_channel);
-					parameter_parse_result += sscanf(received_parameters[1], "%d", &waveform_qty);
+					parameter_parse_result += sscanf(received_parameters[0], "%d", &aux_channel);
+					parameter_parse_result += sscanf(received_parameters[1], "%d", &aux_qty);
 					
-					if(parameter_parse_result != 2 || waveform_qty < 1 || waveform_qty > WAVEFORM_MAX_QTY || input_channel < 1 || input_channel > 5) {
+					if(parameter_parse_result != 2 || aux_qty < 1 || aux_qty > WAVEFORM_MAX_QTY || aux_channel < 1 || aux_channel > 5) {
 						response_code = R_ERR_INVALID_PARAMETER;
 						break;
 					}
@@ -271,12 +340,12 @@ void network_task(void *pvParameters) {
 					raw_adc_start = raw_adc_data_head;
 					vTaskDelay(pdMS_TO_TICKS(100));
 					
-					for(int i = 0; i < waveform_qty; i++)
-						waveform_buffer[i] = raw_adc_data[input_channel][(raw_adc_start + i) % RAW_ADC_DATA_BUFFER_SIZE];
+					for(int i = 0; i < aux_qty; i++)
+						waveform_buffer[i] = raw_adc_data[aux_channel][(raw_adc_start + i) % RAW_ADC_DATA_BUFFER_SIZE];
 					
-					for(int i = 0; i < waveform_qty; i++) {
+					for(int i = 0; i < aux_qty; i++) {
 						sprintf(response_parameters, "%i\t", waveform_buffer[i]);
-						send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, received_counter, response_code, response_parameters);
+						send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, received_counter, R_SUCESS, response_parameters);
 						if(send_result < 0)
 							break;
 					}
@@ -353,13 +422,16 @@ void network_task(void *pvParameters) {
 			processed_data_count--;
 		} else {
 			printf("Error sending data!\n");
-			fflush(stdout);
 			break;
 		}
 		*/
 		
 		debug("Closing socket.\n");
 		close(socket_fd);
+		
+		#ifdef DEBUG
+			fflush(stdout);
+		#endif
 	}
 }
 
