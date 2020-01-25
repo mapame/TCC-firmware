@@ -1,7 +1,7 @@
 #define FW_TYPE 1
-#define FW_VERSION "0.0.10"
+#define FW_VERSION "0.0.12"
 
-#define DEBUG
+//#define DEBUG
 
 #ifdef DEBUG
 #define debug(fmt, ...) printf(fmt, ## __VA_ARGS__)
@@ -22,8 +22,7 @@
 
 #define I2C_BUS 0
 
-#define RTC_UPDATE_PERIOD_S 12 * 3600
-#define RTC_READ_PERIOD_US 60 * 1000000
+#define RTC_READ_PERIOD_US 60U * 60U * 1000000U
 
 #define WAVEFORM_MAX_QTY 50
 

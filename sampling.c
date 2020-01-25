@@ -17,6 +17,7 @@
 #include "rtc.h"
 #include "sampling.h"
 #include "configuration.h"
+#include "ievents.h"
 
 ads111x_dev_t adc_device[3];
 
@@ -37,6 +38,10 @@ void IRAM ads_ready_handle(uint8_t gpio_num) {
 	if(((raw_adc_data_head + 1) % RAW_ADC_DATA_BUFFER_SIZE) == raw_adc_data_tail) { // Stop sampling on buffer full error
 		sampling_running = 0;
 		debug("Raw buffer full!\n");
+		add_internal_event(INTERNAL_EVENT_BUFFER_FULL, raw_adc_data_head);
+		add_internal_event(INTERNAL_EVENT_BUFFER_FULL, raw_adc_data_tail);
+		add_internal_event(INTERNAL_EVENT_BUFFER_FULL, raw_adc_data_count);
+		add_internal_event(INTERNAL_EVENT_BUFFER_FULL, 1);
 		return;
 	}
 	
@@ -77,7 +82,7 @@ void IRAM ads_ready_handle(uint8_t gpio_num) {
 		raw_adc_usecs_since_time[raw_adc_data_head] = sysclock_actual_value - rtc_time_sysclock_reference;
 	
 	if(raw_adc_usecs_since_time[raw_adc_data_head] >= RTC_READ_PERIOD_US)
-		read_rtc();
+		read_rtc_time();
 }
 
 void start_sampling() {
@@ -90,15 +95,19 @@ void start_sampling() {
 	
 	adc_channel_switch_period = 11; // Hardcoded starting value
 	
+	read_rtc_temp();
+	
+	if(read_rtc_time() < 0) {
+		return;
+	}
+	raw_adc_rtc_time[raw_adc_data_head] = rtc_time;
+	raw_adc_usecs_since_time[raw_adc_data_head] = 0;
+	
 	sampling_running = 1;
 	
 	ads111x_start_conversion(&adc_device[0]);
 	ads111x_start_conversion(&adc_device[1]);
 	ads111x_start_conversion(&adc_device[2]);
-	
-	read_rtc();
-	raw_adc_rtc_time[raw_adc_data_head] = rtc_time;
-	raw_adc_usecs_since_time[raw_adc_data_head] = 0;
 }
 
 void pause_sampling() {

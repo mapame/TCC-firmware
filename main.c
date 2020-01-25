@@ -22,8 +22,14 @@
 TaskHandle_t power_processing_task_handle, blink_task_handle;
 
 void IRAM blink_task(void *pvParameters) {
+	int cycle = 0;
 	while(1){
-		gpio_toggle(LED_B_PIN);
+		//gpio_toggle(LED_R_PIN);
+		gpio_write(((sampling_running) ? LED_R_PIN : LED_B_PIN), ((sampling_running) ? 0 : 1));
+		gpio_write(((sampling_running) ? LED_B_PIN : LED_R_PIN), cycle);
+		
+		cycle = (cycle + 1) % 2;
+		
 		vTaskDelay(pdMS_TO_TICKS(250));
 	}
 }

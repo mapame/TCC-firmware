@@ -11,9 +11,9 @@ typedef struct power_data_s {
 } power_data_t;
 
 typedef struct power_event_s {
+	uint32_t timestamp;
 	uint8_t type;
 	uint8_t channel;
-	uint32_t timestamp;
 	uint32_t duration;
 	float value;
 } power_event_t;

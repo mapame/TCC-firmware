@@ -41,6 +41,8 @@ void power_processing_task(void *pvParameters) {
 	processed_data_tail = 0;
 	processed_data_count = 0;
 	
+	start_sampling();
+	
 	while(true) {
 		if(!raw_adc_data_count) {
 			vTaskDelay(pdMS_TO_TICKS(100));
