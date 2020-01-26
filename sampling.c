@@ -10,6 +10,7 @@
 
 #include <FreeRTOS.h>
 #include <task.h>
+#include <message_buffer.h>
 
 #include "ads111x.h"
 
@@ -29,23 +30,27 @@ uint16_t adc_channel_switch_period;
 uint16_t adc_channel_counter;
 uint8_t adc_actual_channel, adc_next_channel;
 
-int16_t raw_adc_data[5][RAW_ADC_DATA_BUFFER_SIZE];
-uint32_t raw_adc_rtc_time[RAW_ADC_DATA_BUFFER_SIZE];
-uint32_t raw_adc_usecs_since_time[RAW_ADC_DATA_BUFFER_SIZE];
-uint16_t raw_adc_data_head, raw_adc_data_tail, raw_adc_data_count;
+uint32_t next_sample_rtc_time;
+uint32_t next_sample_usecs_since_time;
+
+int16_t raw_adc_history_buffer[5][RAW_ADC_HISTORY_BUFFER_SIZE];
+int16_t raw_adc_history_buffer_pos;
+
+MessageBufferHandle_t raw_adc_data_buffer = NULL;
+uint16_t raw_adc_data_count = 0;
+
+raw_adc_data_t raw_adc_data;
 
 void IRAM ads_ready_handle(uint8_t gpio_num) {
-	if(((raw_adc_data_head + 1) % RAW_ADC_DATA_BUFFER_SIZE) == raw_adc_data_tail) { // Stop sampling on buffer full error
+	if(xMessageBufferIsFull(raw_adc_data_buffer)) { // Stop sampling on buffer full error
 		sampling_running = 0;
 		debug("Raw buffer full!\n");
-		add_internal_event(INTERNAL_EVENT_BUFFER_FULL, raw_adc_data_head);
-		add_internal_event(INTERNAL_EVENT_BUFFER_FULL, raw_adc_data_tail);
-		add_internal_event(INTERNAL_EVENT_BUFFER_FULL, raw_adc_data_count);
+		
 		add_internal_event(INTERNAL_EVENT_BUFFER_FULL, 1);
 		return;
 	}
 	
-	if(sampling_running) {
+	if(sampling_running) { // TODO: change to check if equals 1
 		if(++adc_channel_counter >= adc_channel_switch_period) {
 			adc_channel_counter = 0;
 			adc_next_channel = (adc_next_channel + 1) % 2;
@@ -60,50 +65,57 @@ void IRAM ads_ready_handle(uint8_t gpio_num) {
 	
 	uint32_t sysclock_actual_value = sdk_system_get_time();
 	
-	raw_adc_data[(adc_actual_channel == 0) ? 0 : 1][raw_adc_data_head] = ads111x_get_value(&adc_device[0]);
-	raw_adc_data[2][raw_adc_data_head] = ads111x_get_value(&adc_device[1]);
-	raw_adc_data[(adc_actual_channel == 0) ? 3 : 4][raw_adc_data_head] = ads111x_get_value(&adc_device[2]);
+	raw_adc_history_buffer[(adc_actual_channel == 0) ? 0 : 1][raw_adc_history_buffer_pos] = raw_adc_data.data[(adc_actual_channel == 0) ? 0 : 1] = ads111x_get_value(&adc_device[0]);
+	raw_adc_history_buffer[2][raw_adc_history_buffer_pos] = raw_adc_data.data[2] = ads111x_get_value(&adc_device[1]);
+	raw_adc_history_buffer[(adc_actual_channel == 0) ? 3 : 4][raw_adc_history_buffer_pos] = raw_adc_data.data[(adc_actual_channel == 0) ? 3 : 4] = ads111x_get_value(&adc_device[2]);
 	
-	uint16_t inactive_channel_buffer_position = raw_adc_data_head - adc_channel_switch_period + ((raw_adc_data_head - adc_channel_switch_period < 0) ? RAW_ADC_DATA_BUFFER_SIZE : 0);
+	// TODO: if sampling_running equals 2 change to 0
 	
-	raw_adc_data[(adc_actual_channel == 0) ? 1 : 0][raw_adc_data_head] = raw_adc_data[(adc_actual_channel == 0) ? 1 : 0][inactive_channel_buffer_position];
-	raw_adc_data[(adc_actual_channel == 0) ? 4 : 3][raw_adc_data_head] = raw_adc_data[(adc_actual_channel == 0) ? 4 : 3][inactive_channel_buffer_position];
+	uint16_t inactive_channel_buffer_position = ((raw_adc_history_buffer_pos >= adc_channel_switch_period) ? (raw_adc_history_buffer_pos - adc_channel_switch_period) : ((RAW_ADC_HISTORY_BUFFER_SIZE - adc_channel_switch_period) + raw_adc_history_buffer_pos));
+	
+	raw_adc_data.data[(adc_actual_channel == 0) ? 1 : 0] = raw_adc_history_buffer[(adc_actual_channel == 0) ? 1 : 0][inactive_channel_buffer_position];
+	raw_adc_data.data[(adc_actual_channel == 0) ? 4 : 3] = raw_adc_history_buffer[(adc_actual_channel == 0) ? 4 : 3][inactive_channel_buffer_position];
 	
 	adc_actual_channel = adc_next_channel;
 	
-	raw_adc_data_head = (raw_adc_data_head + 1) % RAW_ADC_DATA_BUFFER_SIZE;
-	raw_adc_data_count++;
+	raw_adc_history_buffer_pos = (raw_adc_history_buffer_pos + 1) % RAW_ADC_HISTORY_BUFFER_SIZE;
 	
-	raw_adc_rtc_time[raw_adc_data_head] = rtc_time;
+	raw_adc_data.rtc_time = next_sample_rtc_time;
+	raw_adc_data.usecs_since_time = next_sample_usecs_since_time;
+	
+	next_sample_rtc_time = rtc_time;
 	
 	if(sysclock_actual_value < rtc_time_sysclock_reference)
-		raw_adc_usecs_since_time[raw_adc_data_head] = (((uint32_t)0xFFFFFFFF) - rtc_time_sysclock_reference) + sysclock_actual_value + ((uint32_t)1);
+		next_sample_usecs_since_time = (((uint32_t)0xFFFFFFFF) - rtc_time_sysclock_reference) + sysclock_actual_value + ((uint32_t)1);
 	else
-		raw_adc_usecs_since_time[raw_adc_data_head] = sysclock_actual_value - rtc_time_sysclock_reference;
+		next_sample_usecs_since_time = sysclock_actual_value - rtc_time_sysclock_reference;
 	
-	if(raw_adc_usecs_since_time[raw_adc_data_head] >= RTC_READ_PERIOD_US)
+	if(next_sample_usecs_since_time >= RTC_READ_PERIOD_US)
 		read_rtc_time();
+	
+	xMessageBufferSendFromISR(raw_adc_data_buffer, (void*) &raw_adc_data, sizeof(raw_adc_data), NULL);
+	raw_adc_data_count++;
 }
 
 void start_sampling() {
-	raw_adc_data_head = 0;
-	raw_adc_data_tail = 0;
-	raw_adc_data_count = 0;
 	adc_channel_counter = 0;
 	adc_actual_channel = 0;
 	adc_next_channel = 0;
 	
 	adc_channel_switch_period = 11; // Hardcoded starting value
 	
+	sampling_running = 1;
+	
 	read_rtc_temp();
 	
-	if(read_rtc_time() < 0) {
+	if(raw_adc_data_buffer == NULL)
 		return;
-	}
-	raw_adc_rtc_time[raw_adc_data_head] = rtc_time;
-	raw_adc_usecs_since_time[raw_adc_data_head] = 0;
 	
-	sampling_running = 1;
+	if(read_rtc_time() < 0)
+		return;
+	
+	next_sample_rtc_time = rtc_time;
+	next_sample_usecs_since_time = 0;
 	
 	ads111x_start_conversion(&adc_device[0]);
 	ads111x_start_conversion(&adc_device[1]);
@@ -111,7 +123,7 @@ void start_sampling() {
 }
 
 void pause_sampling() {
-	sampling_running = 0;
+	sampling_running = 0; // TODO: Change value to 2
 	vTaskDelay(pdMS_TO_TICKS(50));
 }
 

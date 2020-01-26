@@ -11,6 +11,7 @@
 
 #include <FreeRTOS.h>
 #include <task.h>
+#include <message_buffer.h>
 
 #include "common.h"
 #include "sampling.h"
@@ -83,6 +84,8 @@ void user_init(void) {
 	debug("Configuring ADCs.\n");
 	
 	adc_config();
+	
+	raw_adc_data_buffer = xMessageBufferCreate(RAW_ADC_DATA_BUFFER_SIZE * (sizeof(raw_adc_data_t) + 4));
 	
 	debug("Starting tasks.\n");
 	

@@ -4,6 +4,10 @@
 #include <unistd.h>
 #include <string.h>
 
+#include <FreeRTOS.h>
+#include <task.h>
+#include <message_buffer.h>
+
 #include <lwip/err.h>
 #include <lwip/sockets.h>
 #include <lwip/sys.h>
@@ -127,7 +131,7 @@ void network_task(void *pvParameters) {
 		int16_t waveform_buffer[WAVEFORM_MAX_QTY];
 		unsigned int aux_channel, aux_qty;
 		uint32_t aux_time;
-		uint16_t raw_adc_start;
+		uint16_t aux_raw_adc_history_buffer_pos;
 		
 		unsigned int disconnection_time;
 		
@@ -378,11 +382,10 @@ void network_task(void *pvParameters) {
 						break;
 					}
 					
-					raw_adc_start = raw_adc_data_head;
-					vTaskDelay(pdMS_TO_TICKS(100));
+					aux_raw_adc_history_buffer_pos = raw_adc_history_buffer_pos;
 					
 					for(int i = 0; i < aux_qty; i++)
-						waveform_buffer[i] = raw_adc_data[aux_channel][(raw_adc_start + i) % RAW_ADC_DATA_BUFFER_SIZE];
+						waveform_buffer[i] = raw_adc_history_buffer[aux_channel][(aux_raw_adc_history_buffer_pos + i) % RAW_ADC_HISTORY_BUFFER_SIZE];
 					
 					for(int i = 0; i < aux_qty; i++) {
 						sprintf(response_parameters, "%i\t", waveform_buffer[i]);
