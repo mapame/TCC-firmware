@@ -76,7 +76,7 @@ void power_processing_task(void *pvParameters) {
 		p_acc[2] += v[2] * i[2];
 		
 		if((raw_adc_data.usecs_since_time - first_sample_usecs) >= 1000000 || first_sample_rtc_time != raw_adc_data.rtc_time) {
-			processed_data[processed_data_head].timestamp = first_sample_rtc_time + first_sample_usecs / 1000000;
+			processed_data[processed_data_head].timestamp = first_sample_rtc_time + first_sample_usecs / 1000000U;
 			processed_data[processed_data_head].duration_usec = raw_adc_data.usecs_since_time - first_sample_usecs;
 			processed_data[processed_data_head].samples = raw_adc_data_processed_counter;
 			processed_data[processed_data_head].vrms[0] = sqrtf(vrms_acc[0] / (float) raw_adc_data_processed_counter);

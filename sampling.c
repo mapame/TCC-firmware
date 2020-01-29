@@ -24,14 +24,13 @@ ads111x_dev_t adc_device[3];
 
 float adc_volt_scale[3];
 
-uint8_t sampling_running;
-
 uint16_t adc_channel_switch_period;
 uint16_t adc_channel_counter;
 uint8_t adc_actual_channel, adc_next_channel;
 
 uint32_t next_sample_rtc_time;
 uint32_t next_sample_usecs_since_time;
+uint8_t read_temp_flag = 0;
 
 int16_t raw_adc_history_buffer[5][RAW_ADC_HISTORY_BUFFER_SIZE];
 int16_t raw_adc_history_buffer_pos;
@@ -50,7 +49,7 @@ void IRAM ads_ready_handle(uint8_t gpio_num) {
 		return;
 	}
 	
-	if(sampling_running) { // TODO: change to check if equals 1
+	if(sampling_running == 1) {
 		if(++adc_channel_counter >= adc_channel_switch_period) {
 			adc_channel_counter = 0;
 			adc_next_channel = (adc_next_channel + 1) % 2;
@@ -69,7 +68,8 @@ void IRAM ads_ready_handle(uint8_t gpio_num) {
 	raw_adc_history_buffer[2][raw_adc_history_buffer_pos] = raw_adc_data.data[2] = ads111x_get_value(&adc_device[1]);
 	raw_adc_history_buffer[(adc_actual_channel == 0) ? 3 : 4][raw_adc_history_buffer_pos] = raw_adc_data.data[(adc_actual_channel == 0) ? 3 : 4] = ads111x_get_value(&adc_device[2]);
 	
-	// TODO: if sampling_running equals 2 change to 0
+	if(sampling_running == 2)
+		sampling_running = 0;
 	
 	uint16_t inactive_channel_buffer_position = ((raw_adc_history_buffer_pos >= adc_channel_switch_period) ? (raw_adc_history_buffer_pos - adc_channel_switch_period) : ((RAW_ADC_HISTORY_BUFFER_SIZE - adc_channel_switch_period) + raw_adc_history_buffer_pos));
 	
@@ -90,8 +90,15 @@ void IRAM ads_ready_handle(uint8_t gpio_num) {
 	else
 		next_sample_usecs_since_time = sysclock_actual_value - rtc_time_sysclock_reference;
 	
-	if(next_sample_usecs_since_time >= RTC_READ_PERIOD_US)
+	if(read_temp_flag) {
+		read_rtc_temp();
+		read_temp_flag = 0;
+	}
+	
+	if(next_sample_usecs_since_time >= RTC_READ_PERIOD_US) {
 		read_rtc_time();
+		read_temp_flag = 1;
+	}
 	
 	xMessageBufferSendFromISR(raw_adc_data_buffer, (void*) &raw_adc_data, sizeof(raw_adc_data), NULL);
 	raw_adc_data_count++;
@@ -123,7 +130,7 @@ void start_sampling() {
 }
 
 void pause_sampling() {
-	sampling_running = 0; // TODO: Change value to 2
+	sampling_running = 2;
 	vTaskDelay(pdMS_TO_TICKS(50));
 }
 

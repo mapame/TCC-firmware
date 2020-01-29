@@ -6,8 +6,6 @@
 
 #define RAW_ADC_HISTORY_BUFFER_SIZE 250
 
-extern uint8_t sampling_running;
-
 extern float adc_volt_scale[3];
 
 // adc0: v1(0), v2(1)

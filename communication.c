@@ -130,7 +130,6 @@ void network_task(void *pvParameters) {
 		
 		int16_t waveform_buffer[WAVEFORM_MAX_QTY];
 		unsigned int aux_channel, aux_qty;
-		uint32_t aux_time;
 		uint16_t aux_raw_adc_history_buffer_pos;
 		
 		unsigned int disconnection_time;
@@ -251,21 +250,7 @@ void network_task(void *pvParameters) {
 					strlcpy(received_ota_hash_text, received_parameters[0], 33);
 					break;
 				case OP_QUERY_STATUS:
-					if(sampling_running) {
-						aux_time = sdk_system_get_time();
-						
-						if(aux_time < rtc_time_sysclock_reference)
-							aux_time = (((uint32_t)0xFFFFFFFF) - rtc_time_sysclock_reference) + aux_time + ((uint32_t)1);
-						else
-							aux_time = aux_time - rtc_time_sysclock_reference;
-					} else {
-						aux_time = 0;
-						read_rtc_time();
-						read_rtc_temp();
-					}
-					
-					sprintf(response_parameters, "%u\t%u\t%.2f\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t", sampling_running, xTaskGetTickCount() / configTICK_RATE_HZ, rtc_temp, rtc_time + (aux_time / 1000000U), rtc_oscillator_stopped, internal_events_count, 0, power_events_data_count, 0, processed_data_count, 0);
-					rtc_oscillator_stopped = 0;
+					sprintf(response_parameters, "%u\t%u\t%.2f\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t", sampling_running, (xTaskGetTickCount() / configTICK_RATE_HZ), get_temp(), get_time(), rtc_oscillator_stopped, internal_events_count, 0, power_events_data_count, 0, processed_data_count, 0);
 					
 					break;
 				case OP_GET_DATA:

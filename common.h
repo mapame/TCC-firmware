@@ -1,5 +1,5 @@
 #define FW_TYPE 1
-#define FW_VERSION "0.0.12"
+#define FW_VERSION "0.0.15"
 
 //#define DEBUG
 
@@ -30,3 +30,5 @@
 
 #define MAX_DISCONNECTION_TIME_MS 5000
 #define MIN_DISCONNECTION_TIME_MS 200
+
+extern uint8_t sampling_running;

@@ -22,6 +22,8 @@
 
 TaskHandle_t power_processing_task_handle, blink_task_handle;
 
+uint8_t sampling_running;
+
 void IRAM blink_task(void *pvParameters) {
 	int cycle = 0;
 	while(1){
@@ -80,6 +82,8 @@ void user_init(void) {
 		debug("Failed to initialize i2c bus!\n");
 		return;
 	}
+	
+	init_rtc();
 	
 	debug("Configuring ADCs.\n");
 	

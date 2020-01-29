@@ -5,15 +5,28 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <FreeRTOS.h>
+#include <semphr.h>
+
 #include <time.h>
 #include <ds3231/ds3231.h>
 
+#include "common.h"
+
 i2c_dev_t rtc_dev = {.addr = DS3231_ADDR, .bus = 0};
+
+SemaphoreHandle_t rtc_mutex = NULL;
 
 uint32_t rtc_time, rtc_time_sysclock_reference;
 uint8_t rtc_oscillator_stopped;
 
 float rtc_temp = 0.0;
+
+int init_rtc() {
+	rtc_mutex = xSemaphoreCreateMutex();
+	
+	return 0;
+}
 
 int read_rtc_time() {
 	struct tm time;
@@ -37,19 +50,65 @@ int read_rtc_temp() {
 	return (int) ds3231_getTempFloat(&rtc_dev, &rtc_temp);
 }
 
-void update_rtc(uint32_t new_time) {
+uint32_t get_time() {
+	uint32_t system_time_now;
+	uint32_t result_us_time;
+	
+	if(!sampling_running) {
+		if(!xSemaphoreTake(rtc_mutex, pdMS_TO_TICKS(500)))
+			return 0;
+		
+		if(read_rtc_time()) {
+			xSemaphoreGive(rtc_mutex);
+			return 0;
+		}
+		
+		xSemaphoreGive(rtc_mutex);
+	}
+	
+	system_time_now = sdk_system_get_time();
+	
+	if(system_time_now < rtc_time_sysclock_reference)
+		result_us_time = (((uint32_t)0xFFFFFFFF) - rtc_time_sysclock_reference) + system_time_now + ((uint32_t)1);
+	else
+		result_us_time = system_time_now - rtc_time_sysclock_reference;
+	
+	return rtc_time + result_us_time / 1000000U;
+}
+
+float get_temp() {
+	if(!sampling_running) {
+		if(xSemaphoreTake(rtc_mutex, pdMS_TO_TICKS(500))) {
+			read_rtc_temp();
+			xSemaphoreGive(rtc_mutex);
+		}
+	}
+	
+	return rtc_temp;
+}
+
+int update_rtc(uint32_t new_time) {
 	time_t new_time_aux;
 	struct tm new_time_tm;
 	bool osf;
-	
-	ds3231_getOscillatorStopFlag(&rtc_dev, &osf);
-	
-	if(osf)
-		ds3231_clearOscillatorStopFlag(&rtc_dev);
 	
 	new_time_aux = new_time;
 	
 	gmtime_r(&new_time_aux, &new_time_tm);
 	
+	if(!xSemaphoreTake(rtc_mutex, pdMS_TO_TICKS(500)))
+		return -1;
+	
+	ds3231_getOscillatorStopFlag(&rtc_dev, &osf);
+	
+	if(osf) {
+		ds3231_clearOscillatorStopFlag(&rtc_dev);
+		rtc_oscillator_stopped = 0;
+	}
+	
 	ds3231_setTime(&rtc_dev, &new_time_tm);
+	
+	xSemaphoreGive(rtc_mutex);
+	
+	return 0;
 }

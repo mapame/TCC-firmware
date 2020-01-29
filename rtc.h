@@ -3,6 +3,9 @@ extern uint8_t rtc_oscillator_stopped;
 
 extern float rtc_temp;
 
+int init_rtc();
 int read_rtc_time();
+uint32_t get_time();
 int read_rtc_temp();
-void update_rtc(uint32_t new_time);
+float get_temp();
+int update_rtc(uint32_t new_time);
