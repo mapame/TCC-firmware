@@ -12,17 +12,11 @@ typedef struct power_data_s {
 
 typedef struct power_event_s {
 	uint32_t timestamp;
-	uint8_t type;
-	uint8_t channel;
+	uint16_t type;
+	uint16_t channel;
 	uint32_t duration;
 	float value;
 } power_event_t;
-
-typedef enum {
-	POWER_SINGLE_PHASE,
-	POWER_TWO_PHASE,
-	POWER_TWO_PHASE_COMBINED
-} measurement_type_t;
 
 typedef enum {
 	POWER_EVENT_VOLTAGE_SAG,

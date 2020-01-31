@@ -28,10 +28,14 @@
 extern TaskHandle_t power_processing_task_handle, blink_task_handle;
 
 static int recv_command_line(int s, char *buf, size_t len);
-static uint8_t convert_opcode(char *buf);
+static int convert_opcode(char *buf);
 static void compute_hmac(const br_hmac_key_context *hmac_key_ctx, char *output_mac_text, const char *data, size_t len);
 static int validate_hmac(const br_hmac_key_context *hmac_key_ctx, char *data, size_t len);
-static int send_response(int socket_fd, const br_hmac_key_context *hmac_key_ctx, uint8_t opcode, uint32_t timestamp, uint32_t counter, int response_code, char *parameters);
+
+static int receive_command(int socket_fd, const br_hmac_key_context *hmac_key_ctx, int *op, uint32_t *received_timestamp, uint32_t counter, char parameters[][PARAM_STR_SIZE]);
+static int parse_command(char *receive_buffer, int *op, uint32_t *timestamp, uint32_t *counter, char **parameters);
+static int parse_parameters(char *parameter_buffer, char parsed_parameters[][PARAM_STR_SIZE], unsigned int parameter_qty);
+static int send_response(int socket_fd, const br_hmac_key_context *hmac_key_ctx, int opcode, uint32_t timestamp, uint32_t counter, int response_code, char *parameters);
 
 opcode_metadata_t opcode_metadata_list[OPCODE_NUM] = {
 	{"HE", 0},
@@ -79,7 +83,7 @@ void network_task(void *pvParameters) {
 			
 			if(socket_fd < 0) {
 				debug("Failed to create socket.\n");
-				vTaskDelay(pdMS_TO_TICKS(200));
+				vTaskDelay(pdMS_TO_TICKS(500));
 				continue;
 			}
 			
@@ -106,85 +110,39 @@ void network_task(void *pvParameters) {
 		
 		br_hmac_key_context hmac_key_ctx;
 		
-		char aux[100];
-		
-		char receive_buffer[200];
-		int received_line_len;
-		
-		int send_result = -1;
-		
-		char *token;
-		char *saveptr;
-		
-		uint8_t received_opcode;
-		char *received_parameters[5];
-		uint32_t received_timestamp;
-		uint32_t received_counter;
-		
-		int parameter_parse_result;
-		
-		char response_parameters[200];
-		int response_code;
+		uint32_t command_counter = 0;
 		
 		int protocol_started = 0;
-		
-		int16_t waveform_buffer[WAVEFORM_MAX_QTY];
-		unsigned int aux_channel, aux_qty;
-		uint16_t aux_raw_adc_history_buffer_pos;
-		
-		unsigned int disconnection_time;
 		
 		br_hmac_key_init(&hmac_key_ctx, &br_md5_vtable, config_mac_password, strlen(config_mac_password));
 		
 		while (protocol_started >= 0) {
-			received_line_len = recv_command_line(socket_fd, receive_buffer, sizeof(receive_buffer));
+			int received_opcode;
+			uint32_t received_timestamp;
+			char received_parameters[PARAM_MAX_QTY][PARAM_STR_SIZE];
 			
-			if(received_line_len <= 0) // Timeout or disconnection
-				break;
+			int parameter_parse_result;
 			
-			if(received_line_len < 35) // Protocol error - Line too small
-				break;
+			int16_t waveform_buffer[WAVEFORM_MAX_QTY];
+			unsigned int aux_channel, aux_qty;
+			uint16_t aux_raw_adc_history_buffer_pos;
 			
-			if(validate_hmac(&hmac_key_ctx, receive_buffer, received_line_len)) { // Protocol error - Invalid MAC
-				debug("Invalid MAC.\n");
-				break;
-			}
+			unsigned int disconnection_time;
 			
-			token = strtok_r(receive_buffer, ":", &saveptr); // Opcode
-			if(!token) // Protocol error - Syntax Error
-				break;
+			int response_code;
+			char response_parameters[200];
 			
-			received_opcode = convert_opcode(token);
+			int send_result;
 			
-			if(received_opcode < 0) // Protocol error - Invalid opcode
+			if(receive_command(socket_fd, &hmac_key_ctx, &received_opcode, &received_timestamp, command_counter, received_parameters))
 				break;
 			
 			if(!protocol_started && received_opcode != OP_PROTOCOL_START)
 				break;
 			
-			token = strtok_r(NULL, ":", &saveptr); // Timestamp
-			if(!token || strlen(token) > 15) // Protocol error - Syntax Error
-				break;
-			
-			sscanf(token, "%u", &received_timestamp);
-			
-			token = strtok_r(NULL, ":", &saveptr); // Counter
-			if(!token || strlen(token) > 15) // Protocol error - Syntax Error
-				break;
-			
-			sscanf(token, "%u", &received_counter);
-			
-			for(int i = 0; i < opcode_metadata_list[received_opcode].parameter_qty; i++) {
-				token = strtok_r(NULL, "\t", &saveptr);
-				if(!token || strlen(token) >= 64)
-					break;
-				
-				received_parameters[i] = token;
-			}
-			
 			debug("Opcode: %s\n", opcode_metadata_list[received_opcode].opcode_text);
 			debug("Timestamp: %u\n", received_timestamp);
-			debug("Counter: %u\n", received_counter);
+			debug("Counter: %u\n", command_counter - 1);
 			
 			response_code = R_SUCESS;
 			response_parameters[0] = '\0';
@@ -197,6 +155,9 @@ void network_task(void *pvParameters) {
 						response_code = R_ERR_UNSPECIFIED;
 						break;
 					}
+					
+					if(get_time() == 0)
+						update_rtc(received_timestamp);
 					
 					// TODO: update rtc if necessary
 					
@@ -226,12 +187,12 @@ void network_task(void *pvParameters) {
 					
 					break;
 				case OP_CONFIG_READ:
-					if(configuration_read(received_parameters[0], aux)) {
+					if(configuration_read(received_parameters[0], response_parameters)) {
 						response_code = R_ERR_UNSPECIFIED;
 						break;
 					}
 					
-					sprintf(response_parameters, "%s\t", aux);
+					strcat(response_parameters, "\t");
 					
 					break;
 				case OP_RESTART:
@@ -250,7 +211,8 @@ void network_task(void *pvParameters) {
 					strlcpy(received_ota_hash_text, received_parameters[0], 33);
 					break;
 				case OP_QUERY_STATUS:
-					sprintf(response_parameters, "%u\t%u\t%.2f\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t", sampling_running, (xTaskGetTickCount() / configTICK_RATE_HZ), get_temp(), get_time(), rtc_oscillator_stopped, internal_events_count, 0, power_events_data_count, 0, processed_data_count, 0);
+					sprintf(response_parameters, "%u\t%u\t%.2f\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t", sampling_running, (xTaskGetTickCount() / configTICK_RATE_HZ), get_temp(), get_time(), rtc_oscillator_stopped, ievents_count, 0, power_events_data_count, 0, processed_data_count, 0);
+					rtc_oscillator_stopped = 0;
 					
 					break;
 				case OP_GET_DATA:
@@ -271,7 +233,7 @@ void network_task(void *pvParameters) {
 							for(int i = 0; i < aux_qty; i++) {
 								power_data_ptr = &processed_data[(processed_data_tail + i) % PROCESSED_DATA_BUFFER_SIZE];
 								sprintf(response_parameters, "%u\t%u\t%u\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t", power_data_ptr->timestamp, power_data_ptr->samples, power_data_ptr->duration_usec, power_data_ptr->vrms[0], power_data_ptr->vrms[1], power_data_ptr->vrms[2], power_data_ptr->irms[0], power_data_ptr->irms[1], power_data_ptr->irms[2], power_data_ptr->p[0], power_data_ptr->p[1], power_data_ptr->p[2]);
-								send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, received_counter, R_SUCESS, response_parameters);
+								send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, R_SUCESS, response_parameters);
 								if(send_result < 0)
 									break;
 							}
@@ -281,17 +243,17 @@ void network_task(void *pvParameters) {
 						}
 					} else if(strcmp(received_parameters[0], "ie") == 0) {
 						if(*received_parameters[1] == 'r') {
-							internal_event_t *internal_event_ptr = NULL;
+							ievent_t *ievent_ptr = NULL;
 							
-							if(aux_qty > internal_events_count) {
+							if(aux_qty > ievents_count) {
 								response_code = R_ERR_INVALID_PARAMETER;
 								break;
 							}
 							
 							for(int i = 0; i < aux_qty; i++) {
-								internal_event_ptr = &internal_events[(internal_events_tail + i) % INTERNAL_EVENT_BUFFER_SIZE];
-								sprintf(response_parameters, "%u\t%u\t%u\t%u\t", internal_event_ptr->timestamp, internal_event_ptr->type, internal_event_ptr->count, internal_event_ptr->value);
-								send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, received_counter, R_SUCESS, response_parameters);
+								ievent_ptr = &ievents_buffer[(ievents_tail + i) % IEVENT_BUFFER_SIZE];
+								sprintf(response_parameters, "%u\t%u\t%u\t%u\t", ievent_ptr->timestamp, ievent_ptr->type, ievent_ptr->count, ievent_ptr->value);
+								send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, R_SUCESS, response_parameters);
 								if(send_result < 0)
 									break;
 							}
@@ -330,13 +292,13 @@ void network_task(void *pvParameters) {
 							power_events_data_count -= aux_qty;
 							
 						} else if(strcmp(received_parameters[0], "ie") == 0) {
-							if(aux_qty > internal_events_count) {
+							if(aux_qty > ievents_count) {
 								response_code = R_ERR_INVALID_PARAMETER;
 								break;
 							}
 							
-							internal_events_tail = (internal_events_tail + aux_qty) % INTERNAL_EVENT_BUFFER_SIZE;
-							internal_events_count -= aux_qty;
+							ievents_tail = (ievents_tail + aux_qty) % IEVENT_BUFFER_SIZE;
+							ievents_count -= aux_qty;
 						}
 						
 					} else if(*received_parameters[1] == 'f') {
@@ -374,7 +336,7 @@ void network_task(void *pvParameters) {
 					
 					for(int i = 0; i < aux_qty; i++) {
 						sprintf(response_parameters, "%i\t", waveform_buffer[i]);
-						send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, received_counter, R_SUCESS, response_parameters);
+						send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, R_SUCESS, response_parameters);
 						if(send_result < 0)
 							break;
 					}
@@ -397,12 +359,14 @@ void network_task(void *pvParameters) {
 			debug("Response %d - Parameters: %s\n", response_code, response_parameters);
 			
 			if((received_opcode != OP_GET_DATA && received_opcode != OP_GET_WAVEFORM) || response_code != R_SUCESS)
-				send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, received_counter, response_code, response_parameters);
+				send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, response_code, response_parameters);
 			
 			if(send_result < 0) {
 				debug("Failed to send response.\n");
 				break;
 			}
+			
+			command_counter++;
 			
 			debug("Done processing command.\n");
 			
@@ -453,13 +417,13 @@ static int recv_command_line(int socket_fd, char *buf, size_t len) {
 	do {
 		char c;
 		
-		if (recv(socket_fd, &c, 1, 0) <= 0)
+		if(recv(socket_fd, &c, 1, 0) <= 0)
 			return -1;
 		
-		if (c == '\n')
+		if(c == '\n')
 			break;
 		
-		if (num < len)
+		if(num < len)
             buf[num] = c;
 		
 		num++;
@@ -470,7 +434,7 @@ static int recv_command_line(int socket_fd, char *buf, size_t len) {
 	return num;
 }
 
-static uint8_t convert_opcode(char *buf) {
+static int convert_opcode(char *buf) {
 	if(!buf)
 		return -1;
 	
@@ -479,6 +443,104 @@ static uint8_t convert_opcode(char *buf) {
 			return i;
 	
 	return -1;
+}
+
+static int receive_command(int socket_fd, const br_hmac_key_context *hmac_key_ctx, int *op, uint32_t *received_timestamp, uint32_t counter, char parameters[][PARAM_STR_SIZE]) {
+	char receive_buffer[200];
+	int received_line_len;
+	
+	uint32_t time_now;
+	uint32_t received_counter;
+	
+	char *str_parameters_ptr;
+	int parameter_qty;
+	
+	received_line_len = recv_command_line(socket_fd, receive_buffer, sizeof(receive_buffer));
+	
+	if(received_line_len <= 0) // Timeout or disconnection
+		return COMM_ERR_RECEVING_RESPONSE;
+	
+	time_now = get_time();
+	
+	if(received_line_len < 35) // Protocol error - Line too small
+		return COMM_ERR_RECEVING_RESPONSE;
+	
+	if(validate_hmac(hmac_key_ctx, receive_buffer, received_line_len)) { // Protocol error - Invalid MAC
+		debug("Invalid MAC.\n");
+		return COMM_ERR_INVALID_MAC;
+	}
+	
+	if(parse_command(receive_buffer, op, received_timestamp, &received_counter, &str_parameters_ptr))
+		return COMM_ERR_PARSING_COMMAND;
+	
+	if(received_counter != counter)
+		return COMM_ERR_INVALID_COUNTER;
+	
+	if(time_now > ((*received_timestamp) + SECURITY_MAX_TIMESTAMP_DIFF_SEC))
+		return COMM_ERR_INVALID_TIMESTAMP;
+	
+	if(parameters != NULL) {
+		parameter_qty = opcode_metadata_list[(*op)].parameter_qty;
+		
+		if(parse_parameters(str_parameters_ptr, parameters, parameter_qty) != parameter_qty)
+			return COMM_ERR_PARSING_COMMAND;
+	}
+	
+	return COMM_OK;
+}
+
+static int parse_command(char *receive_buffer, int *op, uint32_t *timestamp, uint32_t *counter, char **parameters) {
+	char *token;
+	char *saveptr;
+	
+	token = strtok_r(receive_buffer, ":", &saveptr); // Opcode
+	if(!token) // Protocol error - Syntax Error
+		return -1;
+	
+	*op = convert_opcode(token);
+	if(*op < 0) // Protocol error - Invalid opcode
+		return -1;
+	
+	token = strtok_r(NULL, ":", &saveptr); // Timestamp
+	if(!token) // Protocol error - Syntax Error
+		return -1;
+	
+	if(sscanf(token, "%u", timestamp) != 1)
+		return -1;
+	
+	token = strtok_r(NULL, ":", &saveptr); // Counter
+	if(!token) // Protocol error - Syntax Error
+		return -1;
+	
+	if(sscanf(token, "%u", counter) != 1)
+		return -1;
+	
+	if(parameters != NULL)
+		*parameters = strtok_r(NULL, ":", &saveptr); // Parameters
+	
+	return 0;
+}
+
+static int parse_parameters(char *parameter_buffer, char parsed_parameters[][PARAM_STR_SIZE], unsigned int parameter_qty) {
+	char *buffer_ptr = parameter_buffer;
+	char *token;
+	char *saveptr;
+	
+	int count = 0;
+	
+	if(parameter_buffer == NULL)
+		return 0;
+	
+	while((token = strtok_r(buffer_ptr, "\t", &saveptr)) && count < parameter_qty && count < PARAM_MAX_QTY) {
+		if(strlen(token) >= PARAM_STR_SIZE)
+			break;
+		
+		strcpy(parsed_parameters[count], token);
+		count++;
+		buffer_ptr = NULL;
+	}
+	
+	return count;
 }
 
 static void compute_hmac(const br_hmac_key_context *hmac_key_ctx, char *output_mac_text, const char *data, size_t len) {
@@ -521,14 +583,15 @@ static int validate_hmac(const br_hmac_key_context *hmac_key_ctx, char *data, si
 	compute_hmac(hmac_key_ctx, computed_mac_text, data, len - 33);
 	
 	//debug("Calculated HMAC: %s\n", computed_mac_text);
-	
+	#if SECURITY_CHECK_MAC
 	if(strcmp(received_mac_text, computed_mac_text)) // Protocol error - Invalid MAC
 		return -2;
+	#endif
 	
 	return 0;
 }
 
-static int send_response(int socket_fd, const br_hmac_key_context *hmac_key_ctx, uint8_t opcode, uint32_t timestamp, uint32_t counter, int response_code, char *parameters) {
+static int send_response(int socket_fd, const br_hmac_key_context *hmac_key_ctx, int opcode, uint32_t timestamp, uint32_t counter, int response_code, char *parameters) {
 	char aux[36];
 	char send_buffer[200];
 	char computed_mac_text[33];

@@ -44,8 +44,6 @@ void IRAM ads_ready_handle(uint8_t gpio_num) {
 	if(xMessageBufferIsFull(raw_adc_data_buffer)) { // Stop sampling on buffer full error
 		sampling_running = 0;
 		debug("Raw buffer full!\n");
-		
-		add_internal_event(INTERNAL_EVENT_BUFFER_FULL, 1);
 		return;
 	}
 	

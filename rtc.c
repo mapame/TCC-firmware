@@ -101,10 +101,8 @@ int update_rtc(uint32_t new_time) {
 	
 	ds3231_getOscillatorStopFlag(&rtc_dev, &osf);
 	
-	if(osf) {
+	if(osf)
 		ds3231_clearOscillatorStopFlag(&rtc_dev);
-		rtc_oscillator_stopped = 0;
-	}
 	
 	ds3231_setTime(&rtc_dev, &new_time_tm);
 	
