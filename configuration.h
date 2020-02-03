@@ -1,16 +1,17 @@
-#define CONFIG_NUMBER 21
+#define CONFIG_NUMBER 23
 #define CONFIG_STR_SIZE 65
 
 extern char config_device_id[CONFIG_STR_SIZE];
+extern char config_wifi_ap_password[CONFIG_STR_SIZE];
 extern char config_wifi_ssid[CONFIG_STR_SIZE];
 extern char config_wifi_password[CONFIG_STR_SIZE];
 extern char config_mac_password[CONFIG_STR_SIZE];
 extern char config_server_ip[CONFIG_STR_SIZE];
 
 extern int config_use_flash_storage;
-extern int config_measurement_type;
+extern int config_channel_mode;
 extern int config_channel_switch_cycles;
-extern int config_power_data_frequency;
+extern int config_p3_voltage_channel;
 
 extern float config_current_factors[3];
 extern float config_voltage_factors[2];

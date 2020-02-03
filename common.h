@@ -1,5 +1,5 @@
 #define FW_TYPE 1
-#define FW_VERSION "0.0.16"
+#define FW_VERSION "0.0.17"
 
 //#define DEBUG
 
@@ -24,7 +24,7 @@
 
 #define RTC_READ_PERIOD_US 60U * 60U * 1000000U
 
-#define WAVEFORM_MAX_QTY 50
+#define WAVEFORM_MAX_QTY 100
 
 #define SERVER_PORT 2048
 

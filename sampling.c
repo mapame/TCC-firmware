@@ -38,9 +38,11 @@ int16_t raw_adc_history_buffer_pos;
 MessageBufferHandle_t raw_adc_data_buffer = NULL;
 uint16_t raw_adc_data_count = 0;
 
-raw_adc_data_t raw_adc_data;
-
 void IRAM ads_ready_handle(uint8_t gpio_num) {
+	uint32_t sysclock_actual_value;
+	uint16_t inactive_channel_buffer_position;
+	raw_adc_data_t raw_adc_data;
+	
 	if(xMessageBufferIsFull(raw_adc_data_buffer)) { // Stop sampling on buffer full error
 		sampling_running = 0;
 		debug("Raw buffer full!\n");
@@ -48,33 +50,44 @@ void IRAM ads_ready_handle(uint8_t gpio_num) {
 	}
 	
 	if(sampling_running == 1) {
-		if(++adc_channel_counter >= adc_channel_switch_period) {
+		if(config_channel_mode != 0 && (++adc_channel_counter >= adc_channel_switch_period)) {
 			adc_channel_counter = 0;
+			
 			adc_next_channel = (adc_next_channel + 1) % 2;
+			
 			ads111x_set_input_mux(&adc_device[0], (adc_next_channel == 0) ? ADS111X_MUX_0_1 : ADS111X_MUX_2_3);
-			ads111x_set_input_mux(&adc_device[2], (adc_next_channel == 0) ? ADS111X_MUX_0_1 : ADS111X_MUX_2_3);
+			
+			if(config_channel_mode == 2)
+				ads111x_set_input_mux(&adc_device[2], (adc_next_channel == 0) ? ADS111X_MUX_0_1 : ADS111X_MUX_2_3);
 		}
 		
 		ads111x_start_conversion(&adc_device[0]);
 		ads111x_start_conversion(&adc_device[1]);
-		ads111x_start_conversion(&adc_device[2]);
+		if(config_channel_mode != 0)
+			ads111x_start_conversion(&adc_device[2]);
 	}
 	
-	uint32_t sysclock_actual_value = sdk_system_get_time();
+	sysclock_actual_value = sdk_system_get_time();
 	
 	raw_adc_history_buffer[(adc_actual_channel == 0) ? 0 : 1][raw_adc_history_buffer_pos] = raw_adc_data.data[(adc_actual_channel == 0) ? 0 : 1] = ads111x_get_value(&adc_device[0]);
 	raw_adc_history_buffer[2][raw_adc_history_buffer_pos] = raw_adc_data.data[2] = ads111x_get_value(&adc_device[1]);
-	raw_adc_history_buffer[(adc_actual_channel == 0) ? 3 : 4][raw_adc_history_buffer_pos] = raw_adc_data.data[(adc_actual_channel == 0) ? 3 : 4] = ads111x_get_value(&adc_device[2]);
+	if(config_channel_mode == 1)
+		raw_adc_history_buffer[3][raw_adc_history_buffer_pos] = raw_adc_data.data[3] = ads111x_get_value(&adc_device[2]);
+	else if(config_channel_mode == 2)
+		raw_adc_history_buffer[(adc_actual_channel == 0) ? 3 : 4][raw_adc_history_buffer_pos] = raw_adc_data.data[(adc_actual_channel == 0) ? 3 : 4] = ads111x_get_value(&adc_device[2]);
 	
 	if(sampling_running == 2)
 		sampling_running = 0;
 	
-	uint16_t inactive_channel_buffer_position = ((raw_adc_history_buffer_pos >= adc_channel_switch_period) ? (raw_adc_history_buffer_pos - adc_channel_switch_period) : ((RAW_ADC_HISTORY_BUFFER_SIZE - adc_channel_switch_period) + raw_adc_history_buffer_pos));
-	
-	raw_adc_data.data[(adc_actual_channel == 0) ? 1 : 0] = raw_adc_history_buffer[(adc_actual_channel == 0) ? 1 : 0][inactive_channel_buffer_position];
-	raw_adc_data.data[(adc_actual_channel == 0) ? 4 : 3] = raw_adc_history_buffer[(adc_actual_channel == 0) ? 4 : 3][inactive_channel_buffer_position];
-	
-	adc_actual_channel = adc_next_channel;
+	if(config_channel_mode != 0) {
+		inactive_channel_buffer_position = ((raw_adc_history_buffer_pos >= adc_channel_switch_period) ? (raw_adc_history_buffer_pos - adc_channel_switch_period) : ((RAW_ADC_HISTORY_BUFFER_SIZE - adc_channel_switch_period) + raw_adc_history_buffer_pos));
+		
+		raw_adc_data.data[(adc_actual_channel == 0) ? 1 : 0] = raw_adc_history_buffer[(adc_actual_channel == 0) ? 1 : 0][inactive_channel_buffer_position];
+		if(config_channel_mode == 2)
+			raw_adc_data.data[(adc_actual_channel == 0) ? 4 : 3] = raw_adc_history_buffer[(adc_actual_channel == 0) ? 4 : 3][inactive_channel_buffer_position];
+		
+		adc_actual_channel = adc_next_channel;
+	}
 	
 	raw_adc_history_buffer_pos = (raw_adc_history_buffer_pos + 1) % RAW_ADC_HISTORY_BUFFER_SIZE;
 	
@@ -107,7 +120,7 @@ void start_sampling() {
 	adc_actual_channel = 0;
 	adc_next_channel = 0;
 	
-	adc_channel_switch_period = 11; // Hardcoded starting value
+	adc_channel_switch_period = 48; // Hardcoded starting value
 	
 	sampling_running = 1;
 	

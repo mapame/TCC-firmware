@@ -8,15 +8,16 @@
 #include "configuration.h"
 
 char config_device_id[CONFIG_STR_SIZE];
+char config_wifi_ap_password[CONFIG_STR_SIZE];
 char config_wifi_ssid[CONFIG_STR_SIZE];
 char config_wifi_password[CONFIG_STR_SIZE];
 char config_mac_password[CONFIG_STR_SIZE];
 char config_server_ip[CONFIG_STR_SIZE];
 
 int config_use_flash_storage;
-int config_measurement_type;
+int config_channel_mode;
 int config_channel_switch_cycles;
-int config_power_data_frequency;
+int config_p3_voltage_channel;
 
 float config_current_factors[3];
 float config_voltage_factors[2];
@@ -32,30 +33,34 @@ typedef struct config_metadata_s {
 	char default_value[CONFIG_STR_SIZE];
 	uint8_t ext_r;
 	uint8_t ext_w;
+	uint8_t apply_now;
 	void *variable;
 } config_metadata_t;
 
 const config_metadata_t configuration_table[CONFIG_NUMBER] = {
-	{"device_id",					's', "NO_ID",			1, 0, (void*) &config_device_id},
-	{"wifi_ap_ssid",				's', "###NOT_SET###",	1, 1, (void*) &config_wifi_ssid},
-	{"wifi_ap_password",			's', "###NOT_SET###",	0, 1, (void*) &config_wifi_password},
-	{"mac_password",				's', "###NOT_SET###",	0, 0, (void*) &config_mac_password},
-	{"server_ip",					's', "###NOT_SET###",	1, 1, (void*) &config_server_ip},
-	{"use_flash_storage",			'i', "0",				1, 1, (void*) &config_use_flash_storage},
-	{"current_factor1",				'f', "86.21",			1, 1, (void*) &(config_current_factors[0])},
-	{"current_factor2",				'f', "86.21",			1, 1, (void*) &(config_current_factors[1])},
-	{"current_factor3",				'f', "86.21",			1, 1, (void*) &(config_current_factors[2])},
-	{"voltage_factor1",				'f', "3666.67",			1, 1, (void*) &(config_voltage_factors[0])},
-	{"voltage_factor2",				'f', "3666.67",			1, 1, (void*) &(config_voltage_factors[1])},
-	{"channel_switch_cycles",		'i', "0",				1, 1, (void*) &config_channel_switch_cycles},
-	{"line_frequency",				'f', "60.0",			1, 1, (void*) &config_line_frequency},
-	{"line_frequency_tolerance",	'f', "5.0",				1, 1, (void*) &config_line_frequency_tolerance},
-	{"expected_voltage1",			'f', "127.0",			1, 1, (void*) &config_expected_voltage[0]},
-	{"expected_voltage2",			'f', "127.0",			1, 1, (void*) &config_expected_voltage[1]},
-	{"voltage_tolerance",			'f', "5.0",				1, 1, (void*) &config_voltage_tolerance},
-	{"maximum_current1",			'f', "40.0",			1, 1, (void*) &config_max_current[0]},
-	{"maximum_current2",			'f', "40.0",			1, 1, (void*) &config_max_current[1]},
-	{"maximum_current3",			'f', "40.0",			1, 1, (void*) &config_max_current[2]},
+	{"device_id",					's', "NO_ID",			1, 0, 1, (void*) &config_device_id},
+	{"wifi_ap_password",			's', "matawattap",		0, 0, 0, (void*) &config_wifi_ap_password},
+	{"wifi_ssid",					's', "###NOT_SET###",	1, 1, 1, (void*) &config_wifi_ssid},
+	{"wifi_password",				's', "###NOT_SET###",	0, 1, 0, (void*) &config_wifi_password},
+	{"mac_password",				's', "###NOT_SET###",	0, 0, 0, (void*) &config_mac_password},
+	{"server_ip",					's', "###NOT_SET###",	1, 1, 1, (void*) &config_server_ip},
+	{"use_flash_storage",			'i', "0",				1, 1, 0, (void*) &config_use_flash_storage},
+	{"channel_mode",				'i', "2",				1, 1, 0, (void*) &config_channel_mode},
+	{"channel_switch_cycles",		'i', "0",				1, 1, 0, (void*) &config_channel_switch_cycles},
+	{"p3_voltage_channel",			'i', "2",				1, 1, 0, (void*) &config_p3_voltage_channel},
+	{"current_factor1",				'f', "86.21",			1, 1, 1, (void*) &(config_current_factors[0])},
+	{"current_factor2",				'f', "86.21",			1, 1, 1, (void*) &(config_current_factors[1])},
+	{"current_factor3",				'f', "86.21",			1, 1, 1, (void*) &(config_current_factors[2])},
+	{"voltage_factor1",				'f', "3666.67",			1, 1, 1, (void*) &(config_voltage_factors[0])},
+	{"voltage_factor2",				'f', "3666.67",			1, 1, 1, (void*) &(config_voltage_factors[1])},
+	{"line_frequency",				'f', "60.0",			1, 1, 1, (void*) &config_line_frequency},
+	{"line_frequency_tolerance",	'f', "5.0",				1, 1, 1, (void*) &config_line_frequency_tolerance},
+	{"expected_voltage1",			'f', "127.0",			1, 1, 1, (void*) &config_expected_voltage[0]},
+	{"expected_voltage2",			'f', "127.0",			1, 1, 1, (void*) &config_expected_voltage[1]},
+	{"voltage_tolerance",			'f', "5.0",				1, 1, 1, (void*) &config_voltage_tolerance},
+	{"maximum_current1",			'f', "40.0",			1, 1, 1, (void*) &config_max_current[0]},
+	{"maximum_current2",			'f', "40.0",			1, 1, 1, (void*) &config_max_current[1]},
+	{"maximum_current3",			'f', "40.0",			1, 1, 1, (void*) &config_max_current[2]},
 };
 
 
@@ -86,6 +91,10 @@ int configuration_read(const char *configuration_name, char *value_buffer) {
 }
 
 int configuration_write(const char *configuration_name, const char *value_buffer, int external) {
+	char tmp_s[CONFIG_STR_SIZE];
+	int tmp_i;
+	float tmp_f;
+	
 	if(!(configuration_name && value_buffer))
 		return -1;
 	
@@ -98,13 +107,24 @@ int configuration_write(const char *configuration_name, const char *value_buffer
 			
 			switch(configuration_table[i].type) {
 				case 's':
-					conversion_result = strlcpy((char*) configuration_table[i].variable, value_buffer, CONFIG_STR_SIZE);
+					conversion_result = strlcpy((char*) tmp_s, value_buffer, CONFIG_STR_SIZE);
+					
+					if(conversion_result && configuration_table[i].apply_now)
+						strlcpy((char*) configuration_table[i].variable, tmp_s, CONFIG_STR_SIZE);
 					break;
 				case 'i':
-					conversion_result = sscanf(value_buffer, "%d", (int*) configuration_table[i].variable);
+					conversion_result = sscanf(value_buffer, "%d", &tmp_i);
+					
+					if(conversion_result && configuration_table[i].apply_now)
+						*((int*) configuration_table[i].variable) = tmp_f;
+					
 					break;
 				case 'f':
-					conversion_result = sscanf(value_buffer, "%f", (float*) configuration_table[i].variable);
+					conversion_result = sscanf(value_buffer, "%f", &tmp_f);
+					
+					if(conversion_result && configuration_table[i].apply_now)
+						*((float*) configuration_table[i].variable) = tmp_f;
+					
 					break;
 				default:
 					break;
