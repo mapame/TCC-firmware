@@ -10,6 +10,7 @@
 #include <FreeRTOS.h>
 #include <task.h>
 #include <message_buffer.h>
+#include <semphr.h>
 
 #include "common.h"
 #include "configuration.h"
@@ -22,6 +23,14 @@ uint16_t processed_data_head, processed_data_tail, processed_data_count;
 power_event_t power_events[POWER_EVENT_BUFFER_SIZE];
 uint16_t power_events_data_head, power_events_data_tail, power_events_data_count;
 
+float waveform_buffer[4][WAVEFORM_MAX_QTY];
+uint16_t waveform_buffer_pos;
+
+SemaphoreHandle_t processed_data_mutex = NULL;
+SemaphoreHandle_t power_events_mutex = NULL;
+SemaphoreHandle_t waveform_buffer_mutex = NULL;
+
+
 void power_processing_task(void *pvParameters) {
 	raw_adc_data_t raw_adc_data;
 	
@@ -29,28 +38,38 @@ void power_processing_task(void *pvParameters) {
 	uint32_t first_sample_usecs;
 	uint32_t first_sample_rtc_time;
 	
-	float v[3];
-	float i[3];
+	float v[2];
+	float i[2];
 	
-	float vrms_acc[3] = {0.0, 0.0, 0.0};
-	float irms_acc[3] = {0.0, 0.0, 0.0};
-	float p_acc[3] = {0.0, 0.0, 0.0};
+	float vrms_acc[2] = {0.0, 0.0};
+	float irms_acc[2] = {0.0, 0.0};
+	float p_acc[2] = {0.0, 0.0};
+	
+	processed_data_mutex = xSemaphoreCreateMutex();
+	power_events_mutex = xSemaphoreCreateMutex();
+	waveform_buffer_mutex = xSemaphoreCreateMutex();
 	
 	processed_data_head = 0;
 	processed_data_tail = 0;
 	processed_data_count = 0;
 	
-	config_channel_mode = MAX(config_channel_mode, 0);
-	config_channel_mode = MIN(config_channel_mode, 2);
-	
-	config_p3_voltage_channel = MAX(config_p3_voltage_channel, 0);
-	config_p3_voltage_channel = MIN(config_p3_voltage_channel, 2);
+	config_power_phases = MAX(config_power_phases, 1);
+	config_power_phases = MIN(config_power_phases, 2);
 	
 	start_sampling();
 	
 	while(true) {
-		if(xMessageBufferReceive(raw_adc_data_buffer, (void*) &raw_adc_data, sizeof(raw_adc_data_t), pdMS_TO_TICKS(200)) == 0)
+		if(xMessageBufferReceive(raw_adc_data_buffer, (void*) &raw_adc_data, sizeof(raw_adc_data_t), pdMS_TO_TICKS(200)) == 0) {
+			if(sampling_running) {
+				sampling_running = 0;
+				add_ievent(IEVENT_TYPE_SAMPLING_STOPPED, 0, get_time());
+			}
+			
 			continue;
+		}
+		
+		if(raw_adc_data_count == RAW_ADC_DATA_BUFFER_SIZE)
+				add_ievent(IEVENT_TYPE_ADC_BUFFER_FULL, raw_adc_data_count, get_time());
 		
 		raw_adc_data_count--;
 		
@@ -65,12 +84,10 @@ void power_processing_task(void *pvParameters) {
 		
 		vrms_acc[0] += v[0] * v[0];
 		
-		if(config_channel_mode != 0) {
+		if(config_power_phases == 2) {
 			v[1] = (adc_volt_scale[0] * (float)raw_adc_data.data[1]) * config_voltage_factors[1];
-			v[2] = v[0] - v[1];
 			
 			vrms_acc[1] += v[1] * v[1];
-			vrms_acc[2] += v[2] * v[2];
 		}
 		
 		i[0] = (adc_volt_scale[1] * (float)raw_adc_data.data[2]) * config_current_factors[0];
@@ -79,7 +96,7 @@ void power_processing_task(void *pvParameters) {
 		
 		p_acc[0] += v[0] * i[0];
 		
-		if(config_channel_mode != 0) {
+		if(config_power_phases == 2) {
 			i[1] = (adc_volt_scale[2] * (float)raw_adc_data.data[3]) * config_current_factors[1];
 			
 			irms_acc[1] += i[1] * i[1];
@@ -87,13 +104,16 @@ void power_processing_task(void *pvParameters) {
 			p_acc[1] += v[1] * i[1];
 		}
 		
-		if(config_channel_mode == 2) {
-			i[2] = (adc_volt_scale[2] * (float)raw_adc_data.data[4]) * config_current_factors[2];
-			
-			irms_acc[2] += i[2] * i[2];
-			
-			p_acc[2] += v[config_p3_voltage_channel] * i[2];
-		}
+		xSemaphoreTake(waveform_buffer_mutex, pdMS_TO_TICKS(500));
+		
+		waveform_buffer[0][waveform_buffer_pos] = v[0];
+		waveform_buffer[1][waveform_buffer_pos] = v[1];
+		waveform_buffer[2][waveform_buffer_pos] = i[0];
+		waveform_buffer[3][waveform_buffer_pos] = i[1];
+		
+		waveform_buffer_pos = (waveform_buffer_pos + 1) % WAVEFORM_MAX_QTY;
+		
+		xSemaphoreGive(waveform_buffer_mutex);
 		
 		if((raw_adc_data.usecs_since_time - first_sample_usecs) >= 1000000 || first_sample_rtc_time != raw_adc_data.rtc_time) {
 			processed_data[processed_data_head].timestamp = first_sample_rtc_time + first_sample_usecs / 1000000U;
@@ -101,15 +121,12 @@ void power_processing_task(void *pvParameters) {
 			processed_data[processed_data_head].samples = raw_adc_data_processed_counter;
 			processed_data[processed_data_head].vrms[0] = sqrtf(vrms_acc[0] / (float) raw_adc_data_processed_counter);
 			processed_data[processed_data_head].vrms[1] = sqrtf(vrms_acc[1] / (float) raw_adc_data_processed_counter);
-			processed_data[processed_data_head].vrms[2] = sqrtf(vrms_acc[2] / (float) raw_adc_data_processed_counter);
 			
 			processed_data[processed_data_head].irms[0] = sqrtf(irms_acc[0] / (float) raw_adc_data_processed_counter);
 			processed_data[processed_data_head].irms[1] = sqrtf(irms_acc[1] / (float) raw_adc_data_processed_counter);
-			processed_data[processed_data_head].irms[2] = sqrtf(irms_acc[2] / (float) raw_adc_data_processed_counter);
 			
 			processed_data[processed_data_head].p[0] = p_acc[0] / (float) raw_adc_data_processed_counter;
 			processed_data[processed_data_head].p[1] = p_acc[1] / (float) raw_adc_data_processed_counter;
-			processed_data[processed_data_head].p[2] = p_acc[2] / (float) raw_adc_data_processed_counter;
 			
 			processed_data_head = (processed_data_head + 1) % PROCESSED_DATA_BUFFER_SIZE;
 			if(processed_data_head == processed_data_tail)
@@ -117,9 +134,9 @@ void power_processing_task(void *pvParameters) {
 			else
 				processed_data_count++;
 			
-			vrms_acc[0] = vrms_acc[1] = vrms_acc[2] = 0.0;
-			irms_acc[0] = irms_acc[1] = irms_acc[2] = 0.0;
-			p_acc[0] = p_acc[1] = p_acc[2] = 0.0;
+			vrms_acc[0] = vrms_acc[1] = 0.0;
+			irms_acc[0] = irms_acc[1] = 0.0;
+			p_acc[0] = p_acc[1] = 0.0;
 			
 			raw_adc_data_processed_counter = 0;
 		}

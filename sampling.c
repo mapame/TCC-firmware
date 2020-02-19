@@ -24,23 +24,25 @@ ads111x_dev_t adc_device[3];
 
 float adc_volt_scale[3];
 
-uint16_t adc_channel_switch_period;
-uint16_t adc_channel_counter;
+int adc_last_switch_pos;
 uint8_t adc_actual_channel, adc_next_channel;
+
+uint16_t adc_discard_cycles;
+uint16_t adc_ac_rise;
+uint16_t adc_samples_since_switch;
 
 uint32_t next_sample_rtc_time;
 uint32_t next_sample_usecs_since_time;
 uint8_t read_temp_flag = 0;
 
-int16_t raw_adc_history_buffer[5][RAW_ADC_HISTORY_BUFFER_SIZE];
-int16_t raw_adc_history_buffer_pos;
+int16_t raw_adc_history_buffer[2][RAW_ADC_HISTORY_BUFFER_SIZE];
+int raw_adc_history_buffer_pos;
 
 MessageBufferHandle_t raw_adc_data_buffer = NULL;
 uint16_t raw_adc_data_count = 0;
 
 void IRAM ads_ready_handle(uint8_t gpio_num) {
 	uint32_t sysclock_actual_value;
-	uint16_t inactive_channel_buffer_position;
 	raw_adc_data_t raw_adc_data;
 	
 	if(xMessageBufferIsFull(raw_adc_data_buffer)) { // Stop sampling on buffer full error
@@ -49,45 +51,59 @@ void IRAM ads_ready_handle(uint8_t gpio_num) {
 		return;
 	}
 	
+	adc_samples_since_switch++;
+	
 	if(sampling_running == 1) {
-		if(config_channel_mode != 0 && (++adc_channel_counter >= adc_channel_switch_period)) {
-			adc_channel_counter = 0;
+		if(adc_ac_rise) {
+			adc_samples_since_switch = 0;
 			
-			adc_next_channel = (adc_next_channel + 1) % 2;
-			
-			ads111x_set_input_mux(&adc_device[0], (adc_next_channel == 0) ? ADS111X_MUX_0_1 : ADS111X_MUX_2_3);
-			
-			if(config_channel_mode == 2)
-				ads111x_set_input_mux(&adc_device[2], (adc_next_channel == 0) ? ADS111X_MUX_0_1 : ADS111X_MUX_2_3);
+			if(adc_discard_cycles == 0) {
+				if(config_power_phases == 2) {
+					adc_next_channel = (adc_next_channel + 1) % 2;
+					
+					ads111x_set_input_mux(&adc_device[0], (adc_next_channel == 0) ? ADS111X_MUX_0_1 : ADS111X_MUX_2_3);
+				}
+			} else {
+				adc_discard_cycles--;
+			}
 		}
 		
 		ads111x_start_conversion(&adc_device[0]);
 		ads111x_start_conversion(&adc_device[1]);
-		if(config_channel_mode != 0)
+		if(config_power_phases == 2)
 			ads111x_start_conversion(&adc_device[2]);
 	}
 	
 	sysclock_actual_value = sdk_system_get_time();
 	
 	raw_adc_history_buffer[(adc_actual_channel == 0) ? 0 : 1][raw_adc_history_buffer_pos] = raw_adc_data.data[(adc_actual_channel == 0) ? 0 : 1] = ads111x_get_value(&adc_device[0]);
-	raw_adc_history_buffer[2][raw_adc_history_buffer_pos] = raw_adc_data.data[2] = ads111x_get_value(&adc_device[1]);
-	if(config_channel_mode == 1)
-		raw_adc_history_buffer[3][raw_adc_history_buffer_pos] = raw_adc_data.data[3] = ads111x_get_value(&adc_device[2]);
-	else if(config_channel_mode == 2)
-		raw_adc_history_buffer[(adc_actual_channel == 0) ? 3 : 4][raw_adc_history_buffer_pos] = raw_adc_data.data[(adc_actual_channel == 0) ? 3 : 4] = ads111x_get_value(&adc_device[2]);
+	raw_adc_data.data[2] = ads111x_get_value(&adc_device[1]);
+	if(config_power_phases == 2)
+		raw_adc_data.data[3] = ads111x_get_value(&adc_device[2]);
 	
 	if(sampling_running == 2)
 		sampling_running = 0;
 	
-	if(config_channel_mode != 0) {
-		inactive_channel_buffer_position = ((raw_adc_history_buffer_pos >= adc_channel_switch_period) ? (raw_adc_history_buffer_pos - adc_channel_switch_period) : ((RAW_ADC_HISTORY_BUFFER_SIZE - adc_channel_switch_period) + raw_adc_history_buffer_pos));
-		
-		raw_adc_data.data[(adc_actual_channel == 0) ? 1 : 0] = raw_adc_history_buffer[(adc_actual_channel == 0) ? 1 : 0][inactive_channel_buffer_position];
-		if(config_channel_mode == 2)
-			raw_adc_data.data[(adc_actual_channel == 0) ? 4 : 3] = raw_adc_history_buffer[(adc_actual_channel == 0) ? 4 : 3][inactive_channel_buffer_position];
+	if(config_power_phases == 2) {
+		if(adc_discard_cycles == 0)
+			raw_adc_history_buffer[(adc_actual_channel == 0) ? 1 : 0][raw_adc_history_buffer_pos] = raw_adc_data.data[(adc_actual_channel == 0) ? 1 : 0] = raw_adc_history_buffer[(adc_actual_channel == 0) ? 1 : 0][adc_last_switch_pos];
 		
 		adc_actual_channel = adc_next_channel;
 	}
+	
+	if(adc_ac_rise) {
+		adc_ac_rise = 0;
+		
+		adc_last_switch_pos = raw_adc_history_buffer_pos - 11 + 1;
+		if(adc_last_switch_pos < 0)
+			adc_last_switch_pos += RAW_ADC_HISTORY_BUFFER_SIZE;
+		
+	} else {
+		adc_last_switch_pos = (adc_last_switch_pos + 1) % RAW_ADC_HISTORY_BUFFER_SIZE;
+	}
+	
+	if(raw_adc_history_buffer[0][raw_adc_history_buffer_pos] > 0 && raw_adc_history_buffer[0][((raw_adc_history_buffer_pos) ? (raw_adc_history_buffer_pos - 1) : (RAW_ADC_HISTORY_BUFFER_SIZE - 1))] < 0)
+		adc_ac_rise = 1;
 	
 	raw_adc_history_buffer_pos = (raw_adc_history_buffer_pos + 1) % RAW_ADC_HISTORY_BUFFER_SIZE;
 	
@@ -111,16 +127,20 @@ void IRAM ads_ready_handle(uint8_t gpio_num) {
 		read_temp_flag = 1;
 	}
 	
-	xMessageBufferSendFromISR(raw_adc_data_buffer, (void*) &raw_adc_data, sizeof(raw_adc_data), NULL);
-	raw_adc_data_count++;
+	if(adc_discard_cycles == 0) {
+		xMessageBufferSendFromISR(raw_adc_data_buffer, (void*) &raw_adc_data, sizeof(raw_adc_data), NULL);
+		raw_adc_data_count++;
+	}
 }
 
 void start_sampling() {
-	adc_channel_counter = 0;
+	adc_discard_cycles = 4;
+	adc_ac_rise = 0;
+	adc_samples_since_switch = 0;
+	
 	adc_actual_channel = 0;
 	adc_next_channel = 0;
-	
-	adc_channel_switch_period = 48; // Hardcoded starting value
+	adc_last_switch_pos = 0;
 	
 	sampling_running = 1;
 	

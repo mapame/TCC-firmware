@@ -7,6 +7,7 @@
 #include <FreeRTOS.h>
 #include <task.h>
 #include <message_buffer.h>
+#include <semphr.h>
 
 #include <lwip/err.h>
 #include <lwip/sockets.h>
@@ -123,10 +124,7 @@ void network_task(void *pvParameters) {
 			
 			int parameter_parse_result;
 			
-			int16_t waveform_buffer[WAVEFORM_MAX_QTY];
 			unsigned int aux_channel, aux_qty;
-			float aux_volt_scale;
-			uint16_t aux_raw_adc_history_buffer_pos;
 			
 			unsigned int disconnection_time;
 			
@@ -157,10 +155,8 @@ void network_task(void *pvParameters) {
 						break;
 					}
 					
-					if(get_time() == 0)
+					if(get_time() == 0 && !sampling_running)
 						update_rtc(received_timestamp);
-					
-					// TODO: update rtc if necessary
 					
 					protocol_started = 1;
 					sprintf(response_parameters, "%d\t%s\t%s\t%d\t", FW_TYPE, config_device_id, FW_VERSION, CONFIG_NUMBER);
@@ -233,7 +229,11 @@ void network_task(void *pvParameters) {
 							
 							for(int i = 0; i < aux_qty; i++) {
 								power_data_ptr = &processed_data[(processed_data_tail + i) % PROCESSED_DATA_BUFFER_SIZE];
-								sprintf(response_parameters, "%u\t%u\t%u\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t", power_data_ptr->timestamp, power_data_ptr->samples, power_data_ptr->duration_usec, power_data_ptr->vrms[0], power_data_ptr->vrms[1], power_data_ptr->vrms[2], power_data_ptr->irms[0], power_data_ptr->irms[1], power_data_ptr->irms[2], power_data_ptr->p[0], power_data_ptr->p[1], power_data_ptr->p[2]);
+								sprintf(response_parameters, "%u\t%u\t%u\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t", power_data_ptr->timestamp, power_data_ptr->samples, power_data_ptr->duration_usec,
+																																	power_data_ptr->vrms[0], power_data_ptr->vrms[1],
+																																	power_data_ptr->irms[0], power_data_ptr->irms[1],
+																																	power_data_ptr->p[0], power_data_ptr->p[1]);
+								
 								send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, R_SUCESS, response_parameters);
 								if(send_result < 0)
 									break;
@@ -325,29 +325,19 @@ void network_task(void *pvParameters) {
 					parameter_parse_result += sscanf(received_parameters[0], "%u", &aux_channel);
 					parameter_parse_result += sscanf(received_parameters[1], "%u", &aux_qty);
 					
-					if(parameter_parse_result != 2 || aux_qty < 1 || aux_qty > WAVEFORM_MAX_QTY || aux_channel > 4) {
+					if(parameter_parse_result != 2 || aux_qty == 0 || aux_qty > WAVEFORM_MAX_QTY || aux_channel > 6) {
 						response_code = R_ERR_INVALID_PARAMETER;
 						break;
 					}
 					
-					if(aux_channel < 2)
-						aux_volt_scale = adc_volt_scale[0] * config_voltage_factors[aux_channel];
-					else if(aux_channel == 2)
-						aux_volt_scale = adc_volt_scale[1] * config_current_factors[0];
-					else
-						aux_volt_scale = adc_volt_scale[2] * config_current_factors[aux_channel - 2];
-					
-					aux_raw_adc_history_buffer_pos = raw_adc_history_buffer_pos;
-					
-					for(int i = 0; i < aux_qty; i++)
-						waveform_buffer[i] = raw_adc_history_buffer[aux_channel][(aux_raw_adc_history_buffer_pos + i) % RAW_ADC_HISTORY_BUFFER_SIZE];
-					
+					xSemaphoreTake(waveform_buffer_mutex, pdMS_TO_TICKS(500));
 					for(int i = 0; i < aux_qty; i++) {
-						sprintf(response_parameters, "%.4f\t", ((float) waveform_buffer[i]) * aux_volt_scale);
+						sprintf(response_parameters, "%.3f\t", waveform_buffer[aux_channel][(waveform_buffer_pos + i) % WAVEFORM_MAX_QTY]);
 						send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, R_SUCESS, response_parameters);
 						if(send_result < 0)
 							break;
 					}
+					xSemaphoreGive(waveform_buffer_mutex);
 					
 					break;
 				case OP_DISCONNECT:

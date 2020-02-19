@@ -15,17 +15,15 @@ char config_mac_password[CONFIG_STR_SIZE];
 char config_server_ip[CONFIG_STR_SIZE];
 
 int config_use_flash_storage;
-int config_channel_mode;
-int config_channel_switch_cycles;
-int config_p3_voltage_channel;
+int config_power_phases;
 
-float config_current_factors[3];
+float config_current_factors[2];
 float config_voltage_factors[2];
 float config_line_frequency;
 float config_line_frequency_tolerance;
-float config_expected_voltage[2];
+float config_expected_voltage;
 float config_voltage_tolerance;
-float config_max_current[3];
+float config_max_current[2];
 
 typedef struct config_metadata_s {
 	char name[33];
@@ -45,22 +43,17 @@ const config_metadata_t configuration_table[CONFIG_NUMBER] = {
 	{"mac_password",				's', "###NOT_SET###",	0, 0, 0, (void*) &config_mac_password},
 	{"server_ip",					's', "###NOT_SET###",	1, 1, 1, (void*) &config_server_ip},
 	{"use_flash_storage",			'i', "0",				1, 1, 0, (void*) &config_use_flash_storage},
-	{"channel_mode",				'i', "2",				1, 1, 0, (void*) &config_channel_mode},
-	{"channel_switch_cycles",		'i', "0",				1, 1, 0, (void*) &config_channel_switch_cycles},
-	{"p3_voltage_channel",			'i', "2",				1, 1, 0, (void*) &config_p3_voltage_channel},
-	{"current_factor1",				'f', "86.21",			1, 1, 1, (void*) &(config_current_factors[0])},
-	{"current_factor2",				'f', "86.21",			1, 1, 1, (void*) &(config_current_factors[1])},
-	{"current_factor3",				'f', "86.21",			1, 1, 1, (void*) &(config_current_factors[2])},
-	{"voltage_factor1",				'f', "3666.67",			1, 1, 1, (void*) &(config_voltage_factors[0])},
-	{"voltage_factor2",				'f', "3666.67",			1, 1, 1, (void*) &(config_voltage_factors[1])},
+	{"power_phases",				'i', "2",				1, 1, 0, (void*) &config_power_phases},
+	{"current_factor1",				'f', "86.21",			1, 1, 1, (void*) &config_current_factors[0]},
+	{"current_factor2",				'f', "86.21",			1, 1, 1, (void*) &config_current_factors[1]},
+	{"voltage_factor1",				'f', "3666.67",			1, 1, 1, (void*) &config_voltage_factors[0]},
+	{"voltage_factor2",				'f', "3666.67",			1, 1, 1, (void*) &config_voltage_factors[1]},
 	{"line_frequency",				'f', "60.0",			1, 1, 1, (void*) &config_line_frequency},
 	{"line_frequency_tolerance",	'f', "5.0",				1, 1, 1, (void*) &config_line_frequency_tolerance},
-	{"expected_voltage1",			'f', "127.0",			1, 1, 1, (void*) &config_expected_voltage[0]},
-	{"expected_voltage2",			'f', "127.0",			1, 1, 1, (void*) &config_expected_voltage[1]},
+	{"expected_voltage",			'f', "127.0",			1, 1, 1, (void*) &config_expected_voltage},
 	{"voltage_tolerance",			'f', "5.0",				1, 1, 1, (void*) &config_voltage_tolerance},
 	{"maximum_current1",			'f', "40.0",			1, 1, 1, (void*) &config_max_current[0]},
 	{"maximum_current2",			'f', "40.0",			1, 1, 1, (void*) &config_max_current[1]},
-	{"maximum_current3",			'f', "40.0",			1, 1, 1, (void*) &config_max_current[2]},
 };
 
 

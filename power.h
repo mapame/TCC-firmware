@@ -5,9 +5,9 @@ typedef struct power_data_s {
 	uint32_t timestamp;
 	uint32_t samples;
 	uint32_t duration_usec;
-	float vrms[3];
-	float irms[3];
-	float p[3];
+	float vrms[2];
+	float irms[2];
+	float p[2];
 } power_data_t;
 
 typedef struct power_event_s {
@@ -30,5 +30,12 @@ extern uint16_t processed_data_head, processed_data_tail, processed_data_count;
 
 extern power_event_t power_events[POWER_EVENT_BUFFER_SIZE];
 extern uint16_t power_events_data_head, power_events_data_tail, power_events_data_count;
+
+extern float waveform_buffer[4][WAVEFORM_MAX_QTY];
+extern uint16_t waveform_buffer_pos;
+
+extern SemaphoreHandle_t processed_data_mutex;
+extern SemaphoreHandle_t power_events_mutex;
+extern SemaphoreHandle_t waveform_buffer_mutex;
 
 void power_processing_task(void *pvParameters);
