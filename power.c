@@ -15,6 +15,8 @@
 #include "common.h"
 #include "configuration.h"
 #include "sampling.h"
+#include "rtc.h"
+#include "ievents.h"
 #include "power.h"
 
 power_data_t processed_data[PROCESSED_DATA_BUFFER_SIZE];
@@ -104,7 +106,7 @@ void power_processing_task(void *pvParameters) {
 			p_acc[1] += v[1] * i[1];
 		}
 		
-		xSemaphoreTake(waveform_buffer_mutex, pdMS_TO_TICKS(500));
+		xSemaphoreTake(waveform_buffer_mutex, pdMS_TO_TICKS(200));
 		
 		waveform_buffer[0][waveform_buffer_pos] = v[0];
 		waveform_buffer[1][waveform_buffer_pos] = v[1];
@@ -116,9 +118,12 @@ void power_processing_task(void *pvParameters) {
 		xSemaphoreGive(waveform_buffer_mutex);
 		
 		if((raw_adc_data.usecs_since_time - first_sample_usecs) >= 1000000 || first_sample_rtc_time != raw_adc_data.rtc_time) {
+			xSemaphoreTake(processed_data_mutex, pdMS_TO_TICKS(200));
+			
 			processed_data[processed_data_head].timestamp = first_sample_rtc_time + first_sample_usecs / 1000000U;
 			processed_data[processed_data_head].duration_usec = raw_adc_data.usecs_since_time - first_sample_usecs;
 			processed_data[processed_data_head].samples = raw_adc_data_processed_counter;
+			
 			processed_data[processed_data_head].vrms[0] = sqrtf(vrms_acc[0] / (float) raw_adc_data_processed_counter);
 			processed_data[processed_data_head].vrms[1] = sqrtf(vrms_acc[1] / (float) raw_adc_data_processed_counter);
 			
@@ -134,6 +139,8 @@ void power_processing_task(void *pvParameters) {
 			else
 				processed_data_count++;
 			
+			xSemaphoreGive(processed_data_mutex);
+			
 			vrms_acc[0] = vrms_acc[1] = 0.0;
 			irms_acc[0] = irms_acc[1] = 0.0;
 			p_acc[0] = p_acc[1] = 0.0;
@@ -141,4 +148,73 @@ void power_processing_task(void *pvParameters) {
 			raw_adc_data_processed_counter = 0;
 		}
 	}
+}
+
+int get_power_data(power_data_t *data, unsigned int index) {
+	xSemaphoreTake(processed_data_mutex, pdMS_TO_TICKS(300));
+	
+	if(index >= processed_data_count) {
+		xSemaphoreGive(processed_data_mutex);
+		return 1;
+	}
+	
+	memcpy(data, &processed_data[(processed_data_tail + index) % PROCESSED_DATA_BUFFER_SIZE], sizeof(power_data_t));
+	
+	xSemaphoreGive(processed_data_mutex);
+	
+	return 0;
+}
+
+int delete_power_data(unsigned int qty) {
+	int real_qty;
+	
+	xSemaphoreTake(processed_data_mutex, pdMS_TO_TICKS(500));
+	
+	real_qty = MIN(qty, processed_data_count);
+	
+	processed_data_tail = (processed_data_tail + real_qty) % PROCESSED_DATA_BUFFER_SIZE;
+	processed_data_count -= real_qty;
+	
+	xSemaphoreGive(processed_data_mutex);
+	
+	return real_qty;
+}
+
+int get_power_events(power_event_t *data, unsigned int index) {
+	xSemaphoreTake(power_events_mutex, pdMS_TO_TICKS(300));
+	
+	if(index >= power_events_data_count) {
+		xSemaphoreGive(power_events_mutex);
+		return 1;
+	}
+	
+	memcpy(data, &power_events[(power_events_data_tail + index) % POWER_EVENT_BUFFER_SIZE], sizeof(power_event_t));
+	
+	xSemaphoreGive(power_events_mutex);
+	
+	return 0;
+}
+
+int delete_power_events(unsigned int qty) {
+	int real_qty;
+	
+	xSemaphoreTake(power_events_mutex, pdMS_TO_TICKS(500));
+	
+	real_qty = MIN(qty, power_events_data_count);
+	
+	power_events_data_tail = (power_events_data_tail + real_qty) % POWER_EVENT_BUFFER_SIZE;
+	power_events_data_count -= real_qty;
+	
+	xSemaphoreGive(power_events_mutex);
+	
+	return real_qty;
+}
+
+void get_waveform(float *buffer, unsigned int channel, unsigned int qty) {
+	xSemaphoreTake(waveform_buffer_mutex, pdMS_TO_TICKS(300));
+	
+	for(int i = 0; i < qty; i++)
+		buffer[i] = waveform_buffer[channel][(waveform_buffer_pos + i) % WAVEFORM_MAX_QTY];
+	
+	xSemaphoreGive(waveform_buffer_mutex);
 }

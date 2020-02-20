@@ -1,8 +1,6 @@
 extern uint32_t rtc_time, rtc_time_sysclock_reference;
 extern uint8_t rtc_oscillator_stopped;
 
-extern float rtc_temp;
-
 int init_rtc();
 int read_rtc_time();
 uint32_t get_time();

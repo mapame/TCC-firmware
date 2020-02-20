@@ -15,27 +15,28 @@ typedef struct power_event_s {
 	uint16_t type;
 	uint16_t channel;
 	uint32_t duration;
-	float value;
+	float avg_value;
+	float worst_value;
 } power_event_t;
 
 typedef enum {
 	POWER_EVENT_VOLTAGE_SAG,
 	POWER_EVENT_VOLTAGE_SWELL,
-	POWER_EVENT_OVERCURRENT,
 	POWER_EVENT_FREQUENCY_VARIATION,
+	POWER_EVENT_OVERCURRENT,
+	
 } power_event_type_t;
 
-extern power_data_t processed_data[PROCESSED_DATA_BUFFER_SIZE];
-extern uint16_t processed_data_head, processed_data_tail, processed_data_count;
+extern uint16_t processed_data_count;
+extern uint16_t power_events_data_count;
 
-extern power_event_t power_events[POWER_EVENT_BUFFER_SIZE];
-extern uint16_t power_events_data_head, power_events_data_tail, power_events_data_count;
-
-extern float waveform_buffer[4][WAVEFORM_MAX_QTY];
-extern uint16_t waveform_buffer_pos;
-
-extern SemaphoreHandle_t processed_data_mutex;
-extern SemaphoreHandle_t power_events_mutex;
-extern SemaphoreHandle_t waveform_buffer_mutex;
 
 void power_processing_task(void *pvParameters);
+
+int get_power_data(power_data_t *data, unsigned int index);
+int delete_power_data(unsigned int qty);
+
+int get_power_events(power_event_t *data, unsigned int index);
+int delete_power_events(unsigned int qty);
+
+void get_waveform(float *buffer, unsigned int channel, unsigned int qty);

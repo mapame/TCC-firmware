@@ -124,7 +124,12 @@ void network_task(void *pvParameters) {
 			
 			int parameter_parse_result;
 			
+			power_data_t aux_power_data;
+			power_event_t aux_power_event;
+			ievent_t aux_ievent;
+			
 			unsigned int aux_channel, aux_qty;
+			float aux_waveform_buffer[WAVEFORM_MAX_QTY];
 			
 			unsigned int disconnection_time;
 			
@@ -141,7 +146,7 @@ void network_task(void *pvParameters) {
 			
 			debug("Opcode: %s\n", opcode_metadata_list[received_opcode].opcode_text);
 			debug("Timestamp: %u\n", received_timestamp);
-			debug("Counter: %u\n", command_counter - 1);
+			debug("Counter: %u\n", command_counter);
 			
 			response_code = R_SUCESS;
 			response_parameters[0] = '\0';
@@ -220,20 +225,38 @@ void network_task(void *pvParameters) {
 					
 					if(strcmp(received_parameters[0], "pd") == 0) {
 						if(*received_parameters[1] == 'r') {
-							power_data_t *power_data_ptr = NULL;
-							
 							if(aux_qty > processed_data_count) {
 								response_code = R_ERR_INVALID_PARAMETER;
 								break;
 							}
 							
 							for(int i = 0; i < aux_qty; i++) {
-								power_data_ptr = &processed_data[(processed_data_tail + i) % PROCESSED_DATA_BUFFER_SIZE];
-								sprintf(response_parameters, "%u\t%u\t%u\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t", power_data_ptr->timestamp, power_data_ptr->samples, power_data_ptr->duration_usec,
-																																	power_data_ptr->vrms[0], power_data_ptr->vrms[1],
-																																	power_data_ptr->irms[0], power_data_ptr->irms[1],
-																																	power_data_ptr->p[0], power_data_ptr->p[1]);
+								get_power_data(&aux_power_data, i);
 								
+								sprintf(response_parameters, "%u\t%u\t%u\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t", aux_power_data.timestamp, aux_power_data.samples, aux_power_data.duration_usec,
+																																	aux_power_data.vrms[0], aux_power_data.vrms[1],
+																																	aux_power_data.irms[0], aux_power_data.irms[1],
+																																	aux_power_data.p[0], aux_power_data.p[1]);
+								
+								send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, R_SUCESS, response_parameters);
+								if(send_result < 0)
+									break;
+							}
+						} else {
+							response_code = R_ERR_INVALID_PARAMETER;
+							break;
+						}
+					} else if(strcmp(received_parameters[0], "pe") == 0) {
+						if(*received_parameters[1] == 'r') {
+							if(aux_qty > power_events_data_count) {
+								response_code = R_ERR_INVALID_PARAMETER;
+								break;
+							}
+							
+							for(int i = 0; i < aux_qty; i++) {
+								get_power_events(&aux_power_event, i);
+								
+								sprintf(response_parameters, "%u\t%u\t%u\t%u\t%.3f\t%.3f\t", aux_power_event.timestamp, aux_power_event.type, aux_power_event.channel, aux_power_event.duration, aux_power_event.avg_value, aux_power_event.worst_value);
 								send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, R_SUCESS, response_parameters);
 								if(send_result < 0)
 									break;
@@ -244,16 +267,15 @@ void network_task(void *pvParameters) {
 						}
 					} else if(strcmp(received_parameters[0], "ie") == 0) {
 						if(*received_parameters[1] == 'r') {
-							ievent_t *ievent_ptr = NULL;
-							
 							if(aux_qty > ievents_count) {
 								response_code = R_ERR_INVALID_PARAMETER;
 								break;
 							}
 							
 							for(int i = 0; i < aux_qty; i++) {
-								ievent_ptr = &ievents_buffer[(ievents_tail + i) % IEVENT_BUFFER_SIZE];
-								sprintf(response_parameters, "%u\t%u\t%u\t%u\t", ievent_ptr->timestamp, ievent_ptr->type, ievent_ptr->count, ievent_ptr->value);
+								get_ievents(&aux_ievent, i);
+								
+								sprintf(response_parameters, "%u\t%u\t%u\t%u\t", aux_ievent.timestamp, aux_ievent.type, aux_ievent.count, aux_ievent.value);
 								send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, R_SUCESS, response_parameters);
 								if(send_result < 0)
 									break;
@@ -280,8 +302,7 @@ void network_task(void *pvParameters) {
 								break;
 							}
 							
-							processed_data_tail = (processed_data_tail + aux_qty) % PROCESSED_DATA_BUFFER_SIZE;
-							processed_data_count -= aux_qty;
+							delete_power_data(aux_qty);
 							
 						} else if(strcmp(received_parameters[0], "pe") == 0) {
 							if(aux_qty > power_events_data_count) {
@@ -289,8 +310,7 @@ void network_task(void *pvParameters) {
 								break;
 							}
 							
-							power_events_data_tail = (power_events_data_tail + aux_qty) % POWER_EVENT_BUFFER_SIZE;
-							power_events_data_count -= aux_qty;
+							delete_power_events(aux_qty);
 							
 						} else if(strcmp(received_parameters[0], "ie") == 0) {
 							if(aux_qty > ievents_count) {
@@ -298,8 +318,7 @@ void network_task(void *pvParameters) {
 								break;
 							}
 							
-							ievents_tail = (ievents_tail + aux_qty) % IEVENT_BUFFER_SIZE;
-							ievents_count -= aux_qty;
+							delete_ievents(aux_qty);
 						}
 						
 					} else if(*received_parameters[1] == 'f') {
@@ -330,14 +349,14 @@ void network_task(void *pvParameters) {
 						break;
 					}
 					
-					xSemaphoreTake(waveform_buffer_mutex, pdMS_TO_TICKS(500));
+					get_waveform(aux_waveform_buffer, aux_channel, aux_qty);
+					
 					for(int i = 0; i < aux_qty; i++) {
-						sprintf(response_parameters, "%.3f\t", waveform_buffer[aux_channel][(waveform_buffer_pos + i) % WAVEFORM_MAX_QTY]);
+						sprintf(response_parameters, "%.3f\t", aux_waveform_buffer[i]);
 						send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, R_SUCESS, response_parameters);
 						if(send_result < 0)
 							break;
 					}
-					xSemaphoreGive(waveform_buffer_mutex);
 					
 					break;
 				case OP_DISCONNECT:
@@ -464,6 +483,7 @@ static int receive_command(int socket_fd, const br_hmac_key_context *hmac_key_ct
 		return COMM_ERR_RECEVING_RESPONSE;
 	
 	if(validate_hmac(hmac_key_ctx, receive_buffer, received_line_len)) { // Protocol error - Invalid MAC
+		add_ievent(IEVENT_TYPE_INVALID_MAC, 0, get_time());
 		debug("Invalid MAC.\n");
 		return COMM_ERR_INVALID_MAC;
 	}
