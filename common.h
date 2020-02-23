@@ -33,4 +33,16 @@
 
 #define SECURITY_CHECK_MAC 1
 
-extern uint8_t sampling_running;
+typedef enum {
+	LED_OFF,
+	LED_COLOR_RED,
+	LED_COLOR_GREEN,
+	LED_COLOR_YELLOW,
+	LED_COLOR_BLUE,
+	LED_COLOR_PURPLE,
+	LED_COLOR_TEAL,
+	LED_COLOR_WHITE
+} led_colors_t;
+
+extern uint8_t status_sampling_running;
+extern uint8_t status_server_connected;

@@ -62,8 +62,8 @@ void power_processing_task(void *pvParameters) {
 	
 	while(true) {
 		if(xMessageBufferReceive(raw_adc_data_buffer, (void*) &raw_adc_data, sizeof(raw_adc_data_t), pdMS_TO_TICKS(200)) == 0) {
-			if(sampling_running) {
-				sampling_running = 0;
+			if(status_sampling_running) {
+				status_sampling_running = 0;
 				add_ievent(IEVENT_TYPE_SAMPLING_STOPPED, 0, get_time());
 			}
 			

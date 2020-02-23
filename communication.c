@@ -101,6 +101,8 @@ void network_task(void *pvParameters) {
 			vTaskDelay(pdMS_TO_TICKS(1000));
 		}
 		
+		status_server_connected = 1;
+		
 		debug("\nConnected to server!\n");
 		
 		struct timeval socket_send_timeout_value = {.tv_sec = 2, .tv_usec = 0};
@@ -160,26 +162,26 @@ void network_task(void *pvParameters) {
 						break;
 					}
 					
-					if(get_time() == 0 && !sampling_running)
+					if(get_time() == 0 && !status_sampling_running)
 						update_rtc(received_timestamp);
 					
 					protocol_started = 1;
 					sprintf(response_parameters, "%d\t%s\t%s\t%d\t", FW_TYPE, config_device_id, FW_VERSION, CONFIG_NUMBER);
 					break;
 				case OP_SAMPLING_START:
-					if(!sampling_running) {
+					if(!status_sampling_running) {
 						update_rtc(received_timestamp);
 						start_sampling();
 					}
 					
 					break;
 				case OP_SAMPLING_PAUSE:
-					if(sampling_running)
+					if(status_sampling_running)
 						pause_sampling();
 					
 					break;
 				case OP_CONFIG_WRITE:
-					if(sampling_running) {
+					if(status_sampling_running) {
 						response_code = R_ERR_SAMPLING_RUNNING;
 						break;
 					}
@@ -200,7 +202,7 @@ void network_task(void *pvParameters) {
 				case OP_RESTART:
 					break;
 				case OP_FW_UPDATE:
-					if(sampling_running) {
+					if(status_sampling_running) {
 						response_code = R_ERR_SAMPLING_RUNNING;
 						break;
 					}
@@ -213,7 +215,7 @@ void network_task(void *pvParameters) {
 					strlcpy(received_ota_hash_text, received_parameters[0], 33);
 					break;
 				case OP_QUERY_STATUS:
-					sprintf(response_parameters, "%u\t%u\t%.2f\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t", sampling_running, (xTaskGetTickCount() / configTICK_RATE_HZ), get_temp(), get_time(), rtc_oscillator_stopped, ievents_count, 0, power_events_data_count, 0, processed_data_count, 0);
+					sprintf(response_parameters, "%u\t%u\t%.2f\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t", status_sampling_running, (xTaskGetTickCount() / configTICK_RATE_HZ), get_temp(), get_time(), rtc_oscillator_stopped, ievents_count, 0, power_events_data_count, 0, processed_data_count, 0);
 					rtc_oscillator_stopped = 0;
 					
 					break;
@@ -322,7 +324,7 @@ void network_task(void *pvParameters) {
 						}
 						
 					} else if(*received_parameters[1] == 'f') {
-						if(sampling_running) {
+						if(status_sampling_running) {
 							response_code = R_ERR_SAMPLING_RUNNING;
 							break;
 						}
@@ -335,7 +337,7 @@ void network_task(void *pvParameters) {
 					
 					break;
 				case OP_GET_WAVEFORM:
-					if(!sampling_running) {
+					if(!status_sampling_running) {
 						response_code = R_ERR_UNSPECIFIED;
 						break;
 					}
@@ -418,6 +420,8 @@ void network_task(void *pvParameters) {
 					break;
 			}
 		}
+		
+		status_server_connected = 0;
 		
 		debug("Closing socket.\n");
 		close(socket_fd);

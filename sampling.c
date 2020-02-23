@@ -46,14 +46,14 @@ void IRAM ads_ready_handle(uint8_t gpio_num) {
 	raw_adc_data_t raw_adc_data;
 	
 	if(xMessageBufferIsFull(raw_adc_data_buffer)) { // Stop sampling on buffer full error
-		sampling_running = 0;
+		status_sampling_running = 0;
 		debug("Raw buffer full!\n");
 		return;
 	}
 	
 	adc_samples_since_switch++;
 	
-	if(sampling_running == 1) {
+	if(status_sampling_running == 1) {
 		if(adc_ac_rise) {
 			adc_samples_since_switch = 0;
 			
@@ -81,8 +81,8 @@ void IRAM ads_ready_handle(uint8_t gpio_num) {
 	if(config_power_phases == 2)
 		raw_adc_data.data[3] = ads111x_get_value(&adc_device[2]);
 	
-	if(sampling_running == 2)
-		sampling_running = 0;
+	if(status_sampling_running == 2)
+		status_sampling_running = 0;
 	
 	if(config_power_phases == 2) {
 		if(adc_discard_cycles == 0)
@@ -142,7 +142,7 @@ void start_sampling() {
 	adc_next_channel = 0;
 	adc_last_switch_pos = 0;
 	
-	sampling_running = 1;
+	status_sampling_running = 1;
 	
 	read_rtc_temp();
 	
@@ -161,7 +161,7 @@ void start_sampling() {
 }
 
 void pause_sampling() {
-	sampling_running = 2;
+	status_sampling_running = 2;
 	vTaskDelay(pdMS_TO_TICKS(50));
 }
 

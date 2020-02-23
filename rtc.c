@@ -54,7 +54,7 @@ uint32_t get_time() {
 	uint32_t system_time_now;
 	uint32_t result_us_time;
 	
-	if(!sampling_running) {
+	if(!status_sampling_running) {
 		if(!xSemaphoreTake(rtc_mutex, pdMS_TO_TICKS(500)))
 			return 0;
 		
@@ -77,7 +77,7 @@ uint32_t get_time() {
 }
 
 float get_temp() {
-	if(!sampling_running) {
+	if(!status_sampling_running) {
 		if(xSemaphoreTake(rtc_mutex, pdMS_TO_TICKS(500))) {
 			read_rtc_temp();
 			xSemaphoreGive(rtc_mutex);

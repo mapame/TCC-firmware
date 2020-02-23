@@ -12,6 +12,7 @@
 #include <FreeRTOS.h>
 #include <task.h>
 #include <message_buffer.h>
+#include <semphr.h>
 
 #include "common.h"
 #include "sampling.h"
@@ -22,14 +23,27 @@
 
 TaskHandle_t power_processing_task_handle, blink_task_handle;
 
-uint8_t sampling_running;
+uint8_t status_sampling_running;
+uint8_t status_server_connected;
+
+void set_led_color(int color);
 
 void IRAM blink_task(void *pvParameters) {
 	int cycle = 0;
 	while(1){
-		//gpio_toggle(LED_R_PIN);
-		gpio_write(((sampling_running) ? LED_R_PIN : LED_B_PIN), ((sampling_running) ? 0 : 1));
-		gpio_write(((sampling_running) ? LED_B_PIN : LED_R_PIN), cycle);
+		if(cycle) {
+			if(status_server_connected)
+				set_led_color(LED_COLOR_GREEN);
+			else if(sdk_wifi_station_get_connect_status() == STATION_GOT_IP)
+				set_led_color(LED_COLOR_BLUE);
+			else
+				set_led_color(LED_COLOR_YELLOW);
+		} else {
+			if(status_sampling_running)
+				set_led_color(LED_OFF);
+			else
+				set_led_color(LED_COLOR_RED);
+		}
 		
 		cycle = (cycle + 1) % 2;
 		
@@ -37,8 +51,19 @@ void IRAM blink_task(void *pvParameters) {
 	}
 }
 
+void set_led_color(int color) {
+	gpio_write(LED_R_PIN, color & 1);
+	gpio_write(LED_G_PIN, ((color >> 1) & 1) == 0);
+	gpio_write(LED_B_PIN, ((color >> 2) & 1) == 0);
+}
+
 void user_init(void) {
+	int button;
+	
 	uart_set_baud(0, 115200);
+	
+	debug("Firmware version: "FW_VERSION"\n");
+	debug("Build date: "__DATE__" "__TIME__"\n");
 	
 	gpio_enable(READY_PIN, GPIO_INPUT);
 	gpio_enable(LED_R_PIN, GPIO_OUTPUT);
@@ -46,16 +71,22 @@ void user_init(void) {
 	gpio_enable(LED_B_PIN, GPIO_OUTPUT);
 	gpio_enable(BTN_PIN, GPIO_INPUT);
 	
-	for(int i = 1; i < 17; i++) {
-		gpio_write(LED_R_PIN, i & 1);
-		gpio_write(LED_G_PIN, ((i >> 1) & 1) == 0);
-		gpio_write(LED_B_PIN, ((i >> 2) & 1) == 0);
+	gpio_set_pullup(BTN_PIN, 0, 0);
+	
+	button = 0;
+	for(int i = LED_COLOR_RED; i <= LED_COLOR_TEAL; i++) {
+		set_led_color(i);
 		
-		vTaskDelay(pdMS_TO_TICKS(250));
+		button += gpio_read(BTN_PIN);
+		
+		vTaskDelay(pdMS_TO_TICKS(400));
 	}
 	
-	debug("Firmware version: "FW_VERSION"\n");
-	debug("Build date: "__DATE__" "__TIME__"\n");
+	/*
+	if(button > 6) {
+		
+	}
+	*/
 	
 	load_configuration();
 	
