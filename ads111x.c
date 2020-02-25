@@ -56,8 +56,10 @@ const float ads111x_gain_values[] = {
 static uint16_t read_reg(ads111x_dev_t *dev, uint8_t reg)
 {
 	uint16_t res = 0;
-	if (i2c_slave_read(dev->bus, dev->addr, &reg, (uint8_t *)&res, 2))
+	if (i2c_slave_read(dev->bus, dev->addr, &reg, (uint8_t *)&res, 2)) {
 		debug("Could not read register %d", reg);
+		dev->error_count++;
+	}
 	//debug("Read %d: 0x%04x", reg, res);
 	
 	return (res >> 8) | (res << 8);
@@ -67,8 +69,10 @@ static void write_reg(ads111x_dev_t *dev, uint8_t reg, uint16_t val)
 {
 	//debug("Write %d: 0x%04x", reg, val);
 	uint8_t buf[2] = { val >> 8, val};
-	if (i2c_slave_write(dev->bus, dev->addr, &reg, buf, 2))
+	if (i2c_slave_write(dev->bus, dev->addr, &reg, buf, 2)) {
 		debug("Could not write 0x%04x to register %d", val, reg);
+		dev->error_count++;
+	}
 }
 
 static uint16_t read_conf_bits(ads111x_dev_t *dev, uint8_t offs, uint16_t mask)
@@ -86,6 +90,18 @@ void ads111x_init(ads111x_dev_t *dev, uint8_t bus, uint8_t addr)
 	dev->bus = bus;
 	dev->addr = addr;
 	dev->config = REG_CONFIG_DEFAULT;
+	dev->error_count = 0;
+}
+
+unsigned int ads111x_get_error_count(ads111x_dev_t *dev)
+{
+	unsigned int count;
+	
+	count = dev->error_count;
+	
+	dev->error_count = 0;
+	
+	return count;
 }
 
 void ads111x_push_config(ads111x_dev_t *dev)

@@ -12,6 +12,7 @@
 #include <ds3231/ds3231.h>
 
 #include "common.h"
+#include "ievents.h"
 
 i2c_dev_t rtc_dev = {.addr = DS3231_ADDR, .bus = 0};
 
@@ -32,14 +33,17 @@ int read_rtc_time() {
 	struct tm time;
 	bool osf;
 	
-	ds3231_getOscillatorStopFlag(&rtc_dev, &osf);
+	if(!ds3231_getOscillatorStopFlag(&rtc_dev, &osf))
+		return -1;
 	
 	if(osf) {
 		rtc_oscillator_stopped++;
-		return -1;
+		return -2;
 	}
 	
-	ds3231_getTime(&rtc_dev, &time);
+	if(!ds3231_getTime(&rtc_dev, &time))
+		return -1;
+	
 	rtc_time_sysclock_reference = sdk_system_get_time();
 	rtc_time = (uint32_t) mktime(&time);
 	
@@ -47,7 +51,7 @@ int read_rtc_time() {
 }
 
 int read_rtc_temp() {
-	return (int) ds3231_getTempFloat(&rtc_dev, &rtc_temp);
+	return (ds3231_getTempFloat(&rtc_dev, &rtc_temp)) ? 0 : -1;
 }
 
 uint32_t get_time() {
@@ -60,6 +64,8 @@ uint32_t get_time() {
 		
 		if(read_rtc_time()) {
 			xSemaphoreGive(rtc_mutex);
+			
+			add_ievent(IEVENT_TYPE_I2C_ERROR, 2, rtc_time);
 			return 0;
 		}
 		
@@ -104,7 +110,11 @@ int update_rtc(uint32_t new_time) {
 	if(osf)
 		ds3231_clearOscillatorStopFlag(&rtc_dev);
 	
-	ds3231_setTime(&rtc_dev, &new_time_tm);
+	if(ds3231_setTime(&rtc_dev, &new_time_tm)) {
+		add_ievent(IEVENT_TYPE_I2C_ERROR, 2, rtc_time);
+		
+		return -2;
+	}
 	
 	xSemaphoreGive(rtc_mutex);
 	

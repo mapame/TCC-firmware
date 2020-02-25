@@ -33,7 +33,7 @@ uint16_t adc_samples_since_switch;
 
 uint32_t next_sample_rtc_time;
 uint32_t next_sample_usecs_since_time;
-uint8_t read_temp_flag = 0;
+uint8_t read_temp_flag;
 
 int16_t raw_adc_history_buffer[2][RAW_ADC_HISTORY_BUFFER_SIZE];
 int raw_adc_history_buffer_pos;
@@ -81,6 +81,9 @@ void IRAM ads_ready_handle(uint8_t gpio_num) {
 	if(config_power_phases == 2)
 		raw_adc_data.data[3] = ads111x_get_value(&adc_device[2]);
 	
+	if(ads111x_get_error_count(&adc_device[0]) || ads111x_get_error_count(&adc_device[1]) || ads111x_get_error_count(&adc_device[2]))
+		return;
+	
 	if(status_sampling_running == 2)
 		status_sampling_running = 0;
 	
@@ -122,6 +125,9 @@ void IRAM ads_ready_handle(uint8_t gpio_num) {
 		read_temp_flag = 0;
 	}
 	
+	if(next_sample_usecs_since_time >= RTC_MAX_READ_PERIOD_US)
+		return;
+	
 	if(next_sample_usecs_since_time >= RTC_READ_PERIOD_US) {
 		read_rtc_time();
 		read_temp_flag = 1;
@@ -133,7 +139,13 @@ void IRAM ads_ready_handle(uint8_t gpio_num) {
 	}
 }
 
-void start_sampling() {
+int start_sampling() {
+	if(status_sampling_running)
+		return -1;
+	
+	if(raw_adc_data_buffer == NULL)
+		return -2;
+	
 	adc_discard_cycles = 4;
 	adc_ac_rise = 0;
 	adc_samples_since_switch = 0;
@@ -142,15 +154,17 @@ void start_sampling() {
 	adc_next_channel = 0;
 	adc_last_switch_pos = 0;
 	
-	status_sampling_running = 1;
+	read_temp_flag = 0;
 	
-	read_rtc_temp();
+	if(adc_config()) {
+		add_ievent(IEVENT_TYPE_I2C_ERROR, 1, get_time());
+		return -3;
+	}
 	
-	if(raw_adc_data_buffer == NULL)
-		return;
+	get_temp();
 	
-	if(read_rtc_time() < 0)
-		return;
+	if(get_time() == 0)
+		return -4;
 	
 	next_sample_rtc_time = rtc_time;
 	next_sample_usecs_since_time = 0;
@@ -158,14 +172,23 @@ void start_sampling() {
 	ads111x_start_conversion(&adc_device[0]);
 	ads111x_start_conversion(&adc_device[1]);
 	ads111x_start_conversion(&adc_device[2]);
+	
+	if(ads111x_get_error_count(&adc_device[0]) || ads111x_get_error_count(&adc_device[1]) || ads111x_get_error_count(&adc_device[2])) {
+		add_ievent(IEVENT_TYPE_I2C_ERROR, 1, get_time());
+		
+		return -3;
+	}
+	
+	status_sampling_running = 1;
+	
+	return 0;
 }
 
 void pause_sampling() {
 	status_sampling_running = 2;
-	vTaskDelay(pdMS_TO_TICKS(50));
 }
 
-void adc_config() {
+int adc_config() {
 	ads111x_init(&adc_device[0], I2C_BUS, ADS111X_ADDR_GND);
 	ads111x_init(&adc_device[1], I2C_BUS, ADS111X_ADDR_VCC);
 	ads111x_init(&adc_device[2], I2C_BUS, ADS111X_ADDR_SDA);
@@ -181,6 +204,10 @@ void adc_config() {
 	ads111x_set_gain(&adc_device[0], GAIN_ADC1);
 	ads111x_set_gain(&adc_device[1], GAIN_ADC2);
 	ads111x_set_gain(&adc_device[2], GAIN_ADC3);
+	
+	adc_volt_scale[0] = ads111x_gain_values[GAIN_ADC1] / (float)ADS111X_MAX_VALUE;
+	adc_volt_scale[1] = ads111x_gain_values[GAIN_ADC2] / (float)ADS111X_MAX_VALUE;
+	adc_volt_scale[2] = ads111x_gain_values[GAIN_ADC3] / (float)ADS111X_MAX_VALUE;
 	
 	ads111x_set_comp_high_thresh(&adc_device[0], 0x8000);
 	ads111x_set_comp_high_thresh(&adc_device[1], 0x8000);
@@ -201,9 +228,8 @@ void adc_config() {
 	ads111x_push_config(&adc_device[1]);
 	ads111x_push_config(&adc_device[2]);
 	
-	gpio_set_interrupt(READY_PIN, GPIO_INTTYPE_EDGE_POS, ads_ready_handle);
+	if(ads111x_get_error_count(&adc_device[0]) || ads111x_get_error_count(&adc_device[1]) || ads111x_get_error_count(&adc_device[2]))
+		return -1;
 	
-	adc_volt_scale[0] = ads111x_gain_values[GAIN_ADC1] / (float)ADS111X_MAX_VALUE;
-	adc_volt_scale[1] = ads111x_gain_values[GAIN_ADC2] / (float)ADS111X_MAX_VALUE;
-	adc_volt_scale[2] = ads111x_gain_values[GAIN_ADC3] / (float)ADS111X_MAX_VALUE;
+	return 0;
 }

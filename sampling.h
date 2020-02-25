@@ -22,6 +22,6 @@ extern MessageBufferHandle_t raw_adc_data_buffer;
 extern uint16_t raw_adc_data_count;
 
 void IRAM ads_ready_handle(uint8_t gpio_num);
-void start_sampling();
+int start_sampling();
 void pause_sampling();
-void adc_config();
+int adc_config();

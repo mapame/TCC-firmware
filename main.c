@@ -116,11 +116,9 @@ void user_init(void) {
 	
 	init_rtc();
 	
-	debug("Configuring ADCs.\n");
-	
-	adc_config();
-	
 	raw_adc_data_buffer = xMessageBufferCreate(RAW_ADC_DATA_BUFFER_SIZE * (sizeof(raw_adc_data_t) + 4));
+	
+	gpio_set_interrupt(READY_PIN, GPIO_INTTYPE_EDGE_POS, ads_ready_handle);
 	
 	debug("Starting tasks.\n");
 	
