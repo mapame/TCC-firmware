@@ -14,21 +14,23 @@ typedef struct power_event_s {
 	uint32_t timestamp;
 	uint16_t type;
 	uint16_t channel;
-	uint32_t duration;
+	uint32_t count;
 	float avg_value;
 	float worst_value;
 } power_event_t;
 
 typedef enum {
-	POWER_EVENT_VOLTAGE_SAG,
-	POWER_EVENT_VOLTAGE_SWELL,
-	POWER_EVENT_FREQUENCY_VARIATION,
-	POWER_EVENT_OVERCURRENT,
-	
+	POWER_EVENT_TYPE_VOLTAGE_LOW,
+	POWER_EVENT_TYPE_VOLTAGE_HIGH,
+	POWER_EVENT_TYPE_VOLTAGE_SPIKE,
+	POWER_EVENT_TYPE_AC_FREQUENCY_HIGH,
+	POWER_EVENT_TYPE_AC_FREQUENCY_LOW,
+	POWER_EVENT_TYPE_OVERCURRENT,
+	POWER_EVENT_TYPE_QTY
 } power_event_type_t;
 
 extern uint16_t processed_data_count;
-extern uint16_t power_events_data_count;
+extern uint16_t power_events_count;
 
 
 void power_processing_task(void *pvParameters);

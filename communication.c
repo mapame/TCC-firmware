@@ -215,7 +215,7 @@ void network_task(void *pvParameters) {
 					strlcpy(received_ota_hash_text, received_parameters[0], 33);
 					break;
 				case OP_QUERY_STATUS:
-					sprintf(response_parameters, "%u\t%u\t%.2f\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t", status_sampling_running, (xTaskGetTickCount() / configTICK_RATE_HZ), get_temp(), get_time(), rtc_oscillator_stopped, ievents_count, 0, power_events_data_count, 0, processed_data_count, 0);
+					sprintf(response_parameters, "%u\t%u\t%.2f\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t", status_sampling_running, (xTaskGetTickCount() / configTICK_RATE_HZ), get_temp(), get_time(), rtc_oscillator_stopped, ievents_count, 0, power_events_count, 0, processed_data_count, 0);
 					rtc_oscillator_stopped = 0;
 					
 					break;
@@ -250,7 +250,7 @@ void network_task(void *pvParameters) {
 						}
 					} else if(strcmp(received_parameters[0], "pe") == 0) {
 						if(*received_parameters[1] == 'r') {
-							if(aux_qty > power_events_data_count) {
+							if(aux_qty > power_events_count) {
 								response_code = R_ERR_INVALID_PARAMETER;
 								break;
 							}
@@ -258,7 +258,7 @@ void network_task(void *pvParameters) {
 							for(int i = 0; i < aux_qty; i++) {
 								get_power_events(&aux_power_event, i);
 								
-								sprintf(response_parameters, "%u\t%u\t%u\t%u\t%.3f\t%.3f\t", aux_power_event.timestamp, aux_power_event.type, aux_power_event.channel, aux_power_event.duration, aux_power_event.avg_value, aux_power_event.worst_value);
+								sprintf(response_parameters, "%u\t%u\t%u\t%u\t%.3f\t%.3f\t", aux_power_event.timestamp, aux_power_event.type, aux_power_event.count, aux_power_event.channel, aux_power_event.avg_value, aux_power_event.worst_value);
 								send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, R_SUCESS, response_parameters);
 								if(send_result < 0)
 									break;
@@ -307,7 +307,7 @@ void network_task(void *pvParameters) {
 							delete_power_data(aux_qty);
 							
 						} else if(strcmp(received_parameters[0], "pe") == 0) {
-							if(aux_qty > power_events_data_count) {
+							if(aux_qty > power_events_count) {
 								response_code = R_ERR_INVALID_PARAMETER;
 								break;
 							}
