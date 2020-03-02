@@ -58,14 +58,19 @@ uint32_t get_time() {
 	uint32_t system_time_now;
 	uint32_t result_us_time;
 	
+	int result;
+	
 	if(!status_sampling_running) {
 		if(!xSemaphoreTake(rtc_mutex, pdMS_TO_TICKS(500)))
 			return 0;
 		
-		if(read_rtc_time()) {
+		result = read_rtc_time();
+		if(result) {
 			xSemaphoreGive(rtc_mutex);
 			
-			add_ievent(IEVENT_TYPE_I2C_ERROR, 2, rtc_time);
+			if(result == -1)
+				add_ievent(IEVENT_TYPE_I2C_ERROR, 2, rtc_time);
+			
 			return 0;
 		}
 		
@@ -96,7 +101,9 @@ float get_temp() {
 int update_rtc(uint32_t new_time) {
 	time_t new_time_aux;
 	struct tm new_time_tm;
-	bool osf;
+	
+	if(status_sampling_running)
+		return -3;
 	
 	new_time_aux = new_time;
 	
@@ -105,10 +112,11 @@ int update_rtc(uint32_t new_time) {
 	if(!xSemaphoreTake(rtc_mutex, pdMS_TO_TICKS(500)))
 		return -1;
 	
-	ds3231_getOscillatorStopFlag(&rtc_dev, &osf);
-	
-	if(osf)
-		ds3231_clearOscillatorStopFlag(&rtc_dev);
+	if(!ds3231_clearOscillatorStopFlag(&rtc_dev)) {
+		add_ievent(IEVENT_TYPE_I2C_ERROR, 2, rtc_time);
+		
+		return -2;
+	}
 	
 	if(ds3231_setTime(&rtc_dev, &new_time_tm)) {
 		add_ievent(IEVENT_TYPE_I2C_ERROR, 2, rtc_time);

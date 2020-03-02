@@ -32,6 +32,7 @@ SemaphoreHandle_t processed_data_mutex = NULL;
 SemaphoreHandle_t power_events_mutex = NULL;
 SemaphoreHandle_t waveform_buffer_mutex = NULL;
 
+unsigned int power_event_min_count[POWER_EVENT_TYPE_QTY] = {1, 1, 1, 2, 2, 1};
 
 int add_power_event(const power_event_t *pev);
 
@@ -279,8 +280,8 @@ void power_processing_task(void *pvParameters) {
 			xSemaphoreGive(processed_data_mutex);
 			
 			for(int ch = 0; ch < 2; ch++)
-				for(int evt = 0; evt < POWER_EVENT_TYPE_QTY; evt++)
-					if(pevents_count[ch][evt]) {
+				for(int evt = 0; evt < POWER_EVENT_TYPE_QTY; evt++) {
+					if(pevents_count[ch][evt] >= power_event_min_count[evt]) {
 						aux_power_event.timestamp = first_sample_rtc_time + first_sample_usecs / 1000000U;
 						aux_power_event.type = evt;
 						aux_power_event.channel = ch + 1;
@@ -289,9 +290,10 @@ void power_processing_task(void *pvParameters) {
 						aux_power_event.worst_value = pevents_worst[ch][evt];
 						
 						add_power_event(&aux_power_event);
-						
-						pevents_count[ch][evt] = 0;
 					}
+					
+					pevents_count[ch][evt] = 0;
+				}
 			
 			vrms_acc[0] = vrms_acc[1] = 0.0;
 			irms_acc[0] = irms_acc[1] = 0.0;
