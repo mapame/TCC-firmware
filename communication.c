@@ -20,9 +20,10 @@
 #include "common.h"
 #include "sampling.h"
 #include "power.h"
+#include "ievents.h"
+#include "flash.h"
 #include "communication.h"
 #include "configuration.h"
-#include "ievents.h"
 #include "rtc.h"
 #include "ota.h"
 
@@ -124,11 +125,13 @@ void network_task(void *pvParameters) {
 			uint32_t received_timestamp;
 			char received_parameters[PARAM_MAX_QTY][PARAM_STR_SIZE];
 			
-			int parameter_parse_result;
+			int aux_result;
+			char aux_data_source;
 			
 			power_data_t aux_power_data;
+			power_data_flash_t aux_power_data_flash;
 			power_event_t aux_power_event;
-			ievent_t aux_ievent;
+			internal_event_t aux_internal_event;
 			
 			unsigned int aux_channel, aux_qty;
 			float aux_waveform_buffer[WAVEFORM_MAX_QTY];
@@ -215,125 +218,133 @@ void network_task(void *pvParameters) {
 					strlcpy(received_ota_hash_text, received_parameters[0], 33);
 					break;
 				case OP_QUERY_STATUS:
-					sprintf(response_parameters, "%u\t%u\t%.2f\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t", status_sampling_running, (xTaskGetTickCount() / configTICK_RATE_HZ), get_temp(), get_time(), rtc_oscillator_stopped, ievents_count, 0, power_events_count, 0, processed_data_count, 0);
+					sprintf(response_parameters, "%u\t%u\t%.2f\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t", status_sampling_running, (xTaskGetTickCount() / configTICK_RATE_HZ), get_temp(), get_time(), rtc_oscillator_stopped, internal_events_count, power_events_count, power_data_count, flash_internal_events_count, flash_power_events_count, flash_power_data_count);
 					rtc_oscillator_stopped = 0;
 					
 					break;
 				case OP_GET_DATA:
+					aux_data_source = *received_parameters[1];
+					
+					if(aux_data_source != 'f' && aux_data_source != 'r') {
+						response_code = R_ERR_INVALID_PARAMETER;
+						break;
+					}
+					
+					if(status_sampling_running && aux_data_source == 'f') {
+						response_code = R_ERR_SAMPLING_RUNNING;
+						break;
+					}
+					
 					if(sscanf(received_parameters[2], "%u", &aux_qty) != 1) {
 						response_code = R_ERR_INVALID_PARAMETER;
 						break;
 					}
 					
 					if(strcmp(received_parameters[0], "pd") == 0) {
-						if(*received_parameters[1] == 'r') {
-							if(aux_qty > processed_data_count) {
-								response_code = R_ERR_INVALID_PARAMETER;
-								break;
-							}
-							
-							for(int i = 0; i < aux_qty; i++) {
+						if(aux_qty > ((aux_data_source == 'r') ? power_data_count : flash_power_data_count)) {
+							response_code = R_ERR_INVALID_PARAMETER;
+							break;
+						}
+						
+						for(int i = 0; i < aux_qty; i++) {
+							if(aux_data_source == 'r') {
 								get_power_data(&aux_power_data, i);
 								
-								sprintf(response_parameters, "%u\t%u\t%u\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t", aux_power_data.timestamp, aux_power_data.samples, aux_power_data.duration_usec,
-																																	aux_power_data.vrms[0], aux_power_data.vrms[1],
-																																	aux_power_data.irms[0], aux_power_data.irms[1],
-																																	aux_power_data.p[0], aux_power_data.p[1]);
+								sprintf(response_parameters, "%u\t%u\t%u\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t", aux_power_data.timestamp,
+																													aux_power_data.samples, aux_power_data.duration_usec,
+																													aux_power_data.vrms[0], aux_power_data.vrms[1],
+																													aux_power_data.irms[0], aux_power_data.irms[1],
+																													aux_power_data.p[0], aux_power_data.p[1]);
+							} else {
+								flash_get_power_data(&aux_power_data_flash, i);
 								
-								send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, R_SUCESS, response_parameters);
-								if(send_result < 0)
-									break;
+								sprintf(response_parameters, "%u\t%u\t%.3f\t%.3f\t%.3f\t%.3f\t", aux_power_data_flash.timestamp, aux_power_data_flash.seconds, aux_power_data_flash.active[0], aux_power_data_flash.active[1], aux_power_data_flash.reactive[0], aux_power_data_flash.reactive[1]);
 							}
-						} else {
-							response_code = R_ERR_INVALID_PARAMETER;
-							break;
+							
+							send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, R_SUCESS, response_parameters);
+							if(send_result < 0)
+								break;
 						}
 					} else if(strcmp(received_parameters[0], "pe") == 0) {
-						if(*received_parameters[1] == 'r') {
-							if(aux_qty > power_events_count) {
-								response_code = R_ERR_INVALID_PARAMETER;
-								break;
-							}
-							
-							for(int i = 0; i < aux_qty; i++) {
-								get_power_events(&aux_power_event, i);
-								
-								sprintf(response_parameters, "%u\t%u\t%u\t%u\t%.3f\t%.3f\t", aux_power_event.timestamp, aux_power_event.type, aux_power_event.count, aux_power_event.channel, aux_power_event.avg_value, aux_power_event.worst_value);
-								send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, R_SUCESS, response_parameters);
-								if(send_result < 0)
-									break;
-							}
-						} else {
+						if(aux_qty > ((aux_data_source == 'r') ? power_events_count : flash_power_events_count)) {
 							response_code = R_ERR_INVALID_PARAMETER;
 							break;
 						}
-					} else if(strcmp(received_parameters[0], "ie") == 0) {
-						if(*received_parameters[1] == 'r') {
-							if(aux_qty > ievents_count) {
-								response_code = R_ERR_INVALID_PARAMETER;
-								break;
-							}
+						
+						for(int i = 0; i < aux_qty; i++) {
+							if(aux_data_source == 'r')
+								get_power_event(&aux_power_event, i);
+							else
+								flash_get_power_event(&aux_power_event, i);
 							
-							for(int i = 0; i < aux_qty; i++) {
-								get_ievents(&aux_ievent, i);
-								
-								sprintf(response_parameters, "%u\t%u\t%u\t%u\t", aux_ievent.timestamp, aux_ievent.type, aux_ievent.count, aux_ievent.value);
-								send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, R_SUCESS, response_parameters);
-								if(send_result < 0)
-									break;
-							}
-						} else {
+							sprintf(response_parameters, "%u\t%u\t%u\t%u\t%.3f\t%.3f\t", aux_power_event.timestamp, aux_power_event.type, aux_power_event.count, aux_power_event.channel, aux_power_event.avg_value, aux_power_event.worst_value);
+							send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, R_SUCESS, response_parameters);
+							if(send_result < 0)
+								break;
+						}
+					} else if(strcmp(received_parameters[0], "ie") == 0) {
+						if(aux_qty > ((aux_data_source == 'r') ? internal_events_count : flash_internal_events_count)) {
 							response_code = R_ERR_INVALID_PARAMETER;
 							break;
+						}
+						
+						for(int i = 0; i < aux_qty; i++) {
+							if(aux_data_source == 'r')
+								get_internal_event(&aux_internal_event, i);
+							else
+								flash_get_internal_event(&aux_internal_event, i);
+							
+							sprintf(response_parameters, "%u\t%u\t%u\t%u\t", aux_internal_event.timestamp, aux_internal_event.type, aux_internal_event.count, aux_internal_event.value);
+							send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, R_SUCESS, response_parameters);
+							if(send_result < 0)
+								break;
 						}
 					} else {
 						response_code = R_ERR_INVALID_PARAMETER;
-						break;
 					}
 					break;
 				case OP_DELETE_DATA:
+					aux_data_source = *received_parameters[1];
+					
+					if(aux_data_source != 'f' && aux_data_source != 'r') {
+						response_code = R_ERR_INVALID_PARAMETER;
+						break;
+					}
+					
+					if(status_sampling_running && aux_data_source == 'f') {
+						response_code = R_ERR_SAMPLING_RUNNING;
+						break;
+					}
+					
 					if(sscanf(received_parameters[2], "%u", &aux_qty) != 1) {
 						response_code = R_ERR_INVALID_PARAMETER;
 						break;
 					}
 					
-					if(*received_parameters[1] == 'r') {
-						if(strcmp(received_parameters[0], "pd") == 0) {
-							if(aux_qty > processed_data_count) {
-								response_code = R_ERR_INVALID_PARAMETER;
-								break;
-							}
-							
-							delete_power_data(aux_qty);
-							
-						} else if(strcmp(received_parameters[0], "pe") == 0) {
-							if(aux_qty > power_events_count) {
-								response_code = R_ERR_INVALID_PARAMETER;
-								break;
-							}
-							
-							delete_power_events(aux_qty);
-							
-						} else if(strcmp(received_parameters[0], "ie") == 0) {
-							if(aux_qty > ievents_count) {
-								response_code = R_ERR_INVALID_PARAMETER;
-								break;
-							}
-							
-							delete_ievents(aux_qty);
-						}
+					aux_result = 1;
+					
+					if(strcmp(received_parameters[0], "pd") == 0) {
+						if(aux_data_source == 'r')
+							aux_result = delete_power_data(aux_qty);
+						else
+							aux_result = flash_delete_power_data(aux_qty);
 						
-					} else if(*received_parameters[1] == 'f') {
-						if(status_sampling_running) {
-							response_code = R_ERR_SAMPLING_RUNNING;
-							break;
-						}
+					} else if(strcmp(received_parameters[0], "pe") == 0) {
+						if(aux_data_source == 'r')
+							aux_result = delete_power_events(aux_qty);
+						else
+							aux_result = flash_delete_power_events(aux_qty);
 						
-						response_code = R_ERR_UNSPECIFIED;
-					} else {
-						response_code = R_ERR_INVALID_PARAMETER;
-						break;
+					} else if(strcmp(received_parameters[0], "ie") == 0) {
+						if(aux_data_source == 'r')
+							aux_result = delete_internal_events(aux_qty);
+						else
+							aux_result = flash_delete_internal_events(aux_qty);
+						
 					}
+					
+					if(aux_result != 0)
+						response_code = R_ERR_INVALID_PARAMETER;
 					
 					break;
 				case OP_GET_WAVEFORM:
@@ -342,11 +353,11 @@ void network_task(void *pvParameters) {
 						break;
 					}
 					
-					parameter_parse_result = 0;
-					parameter_parse_result += sscanf(received_parameters[0], "%u", &aux_channel);
-					parameter_parse_result += sscanf(received_parameters[1], "%u", &aux_qty);
+					aux_result = 0;
+					aux_result += sscanf(received_parameters[0], "%u", &aux_channel);
+					aux_result += sscanf(received_parameters[1], "%u", &aux_qty);
 					
-					if(parameter_parse_result != 2 || aux_qty == 0 || aux_qty > WAVEFORM_MAX_QTY || aux_channel > 6) {
+					if(aux_result != 2 || aux_qty == 0 || aux_qty > WAVEFORM_MAX_QTY || aux_channel > 6) {
 						response_code = R_ERR_INVALID_PARAMETER;
 						break;
 					}
@@ -445,7 +456,7 @@ static int recv_command_line(int socket_fd, char *buf, size_t len) {
 			break;
 		
 		if(num < len)
-            buf[num] = c;
+			buf[num] = c;
 		
 		num++;
 	} while(1);
@@ -487,7 +498,7 @@ static int receive_command(int socket_fd, const br_hmac_key_context *hmac_key_ct
 		return COMM_ERR_RECEVING_RESPONSE;
 	
 	if(validate_hmac(hmac_key_ctx, receive_buffer, received_line_len)) { // Protocol error - Invalid MAC
-		add_ievent(IEVENT_TYPE_INVALID_MAC, 0, get_time());
+		add_internal_event(IEVENT_TYPE_INVALID_MAC, 0, get_time());
 		debug("Invalid MAC.\n");
 		return COMM_ERR_INVALID_MAC;
 	}

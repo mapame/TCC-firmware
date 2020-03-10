@@ -9,91 +9,94 @@
 #include "common.h"
 #include "ievents.h"
 
-ievent_t ievents_buffer[IEVENT_BUFFER_SIZE];
-uint16_t ievents_head, ievents_tail, ievents_count;
+internal_event_t internal_events[IEVENT_BUFFER_SIZE];
+uint16_t internal_events_head, internal_events_tail, internal_events_count;
 
-SemaphoreHandle_t ievents_mutex = NULL;
+SemaphoreHandle_t internal_events_mutex = NULL;
 
-int add_ievent(int type, int value, uint32_t event_time) {
+int add_internal_event(int type, int value, uint32_t event_time) {
 	uint16_t last_ievent_pos;
 	
-	if(!xSemaphoreTake(ievents_mutex, pdMS_TO_TICKS(500)))
+	if(!xSemaphoreTake(internal_events_mutex, pdMS_TO_TICKS(500)))
 		return 1;
 	
-	last_ievent_pos = (ievents_head == 0) ? (IEVENT_BUFFER_SIZE - 1) : (ievents_head - 1);
+	last_ievent_pos = (internal_events_head == 0) ? (IEVENT_BUFFER_SIZE - 1) : (internal_events_head - 1);
 	
-	if(ievents_count == IEVENT_BUFFER_SIZE) {
-		if(ievents_buffer[last_ievent_pos].type == IEVENT_TYPE_IEVENTS_BUFFER_FULL)
-			ievents_buffer[last_ievent_pos].count++;
+	if(internal_events_count == IEVENT_BUFFER_SIZE) {
+		if(internal_events[last_ievent_pos].type == IEVENT_TYPE_IEVENTS_BUFFER_FULL)
+			internal_events[last_ievent_pos].count++;
 		
+		xSemaphoreGive(internal_events_mutex);
 		return 2;
 	}
 	
-	if(ievents_count && ievents_buffer[last_ievent_pos].type == type && ievents_buffer[last_ievent_pos].value == value && ievents_buffer[last_ievent_pos].timestamp == event_time) {
-		ievents_buffer[last_ievent_pos].count++;
-		xSemaphoreGive(ievents_mutex);
+	if(internal_events_count && internal_events[last_ievent_pos].type == type && internal_events[last_ievent_pos].value == value && internal_events[last_ievent_pos].timestamp == event_time) {
+		internal_events[last_ievent_pos].count++;
+		xSemaphoreGive(internal_events_mutex);
 		return 0;
 	}
 	
-	ievents_buffer[ievents_head].timestamp = event_time;
-	ievents_buffer[ievents_head].count = 1;
-	ievents_buffer[ievents_head].type = type;
-	ievents_buffer[ievents_head].value = value;
+	internal_events[internal_events_head].timestamp = event_time;
+	internal_events[internal_events_head].count = 1;
+	internal_events[internal_events_head].type = type;
+	internal_events[internal_events_head].value = value;
 	
-	ievents_head = (ievents_head + 1) % IEVENT_BUFFER_SIZE;
-	ievents_count++;
+	internal_events_head = (internal_events_head + 1) % IEVENT_BUFFER_SIZE;
+	internal_events_count++;
 	
-	if(ievents_count == (IEVENT_BUFFER_SIZE - 1)) {
-		ievents_buffer[ievents_head].timestamp = event_time;
-		ievents_buffer[ievents_head].count = 1;
-		ievents_buffer[ievents_head].type = IEVENT_TYPE_IEVENTS_BUFFER_FULL;
-		ievents_buffer[ievents_head].value = ievents_count;
+	if(internal_events_count == (IEVENT_BUFFER_SIZE - 1)) {
+		internal_events[internal_events_head].timestamp = event_time;
+		internal_events[internal_events_head].count = 1;
+		internal_events[internal_events_head].type = IEVENT_TYPE_IEVENTS_BUFFER_FULL;
+		internal_events[internal_events_head].value = internal_events_count;
 		
-		ievents_head = (ievents_head + 1) % IEVENT_BUFFER_SIZE;
-		ievents_count++;
+		internal_events_head = (internal_events_head + 1) % IEVENT_BUFFER_SIZE;
+		internal_events_count++;
 	}
 	
-	xSemaphoreGive(ievents_mutex);
+	xSemaphoreGive(internal_events_mutex);
 	
 	return 0;
 }
 
-int get_ievents(ievent_t *data, unsigned int index) {
-	xSemaphoreTake(ievents_mutex, pdMS_TO_TICKS(300));
+int get_internal_event(internal_event_t *data, unsigned int index) {
+	xSemaphoreTake(internal_events_mutex, pdMS_TO_TICKS(300));
 	
-	if(index >= ievents_count) {
-		xSemaphoreGive(ievents_mutex);
+	if(index >= internal_events_count) {
+		xSemaphoreGive(internal_events_mutex);
 		return 1;
 	}
 	
-	memcpy(data, &ievents_buffer[(ievents_tail + index) % IEVENT_BUFFER_SIZE], sizeof(ievent_t));
+	memcpy(data, &internal_events[(internal_events_tail + index) % IEVENT_BUFFER_SIZE], sizeof(internal_event_t));
 	
-	xSemaphoreGive(ievents_mutex);
+	xSemaphoreGive(internal_events_mutex);
 	
 	return 0;
 }
 
-int delete_ievents(unsigned int qty) {
-	int real_qty;
+int delete_internal_events(unsigned int qty) {
+	xSemaphoreTake(internal_events_mutex, pdMS_TO_TICKS(500));
 	
-	xSemaphoreTake(ievents_mutex, pdMS_TO_TICKS(500));
+	if(qty > internal_events_count) {
+		xSemaphoreGive(internal_events_mutex);
+		
+		return -1;
+	}
 	
-	real_qty = MIN(qty, ievents_count);
+	internal_events_tail = (internal_events_tail + qty) % IEVENT_BUFFER_SIZE;
+	internal_events_count -= qty;
 	
-	ievents_tail = (ievents_tail + real_qty) % IEVENT_BUFFER_SIZE;
-	ievents_count -= real_qty;
+	xSemaphoreGive(internal_events_mutex);
 	
-	xSemaphoreGive(ievents_mutex);
-	
-	return real_qty;
+	return 0;
 }
 
 int ievents_init() {
-	ievents_mutex = xSemaphoreCreateMutex();
+	internal_events_mutex = xSemaphoreCreateMutex();
 	
-	ievents_head = 0;
-	ievents_tail = 0;
-	ievents_count = 0;
+	internal_events_head = 0;
+	internal_events_tail = 0;
+	internal_events_count = 0;
 	
 	return 0;
 }

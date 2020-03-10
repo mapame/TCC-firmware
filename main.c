@@ -17,6 +17,8 @@
 #include "common.h"
 #include "sampling.h"
 #include "power.h"
+#include "ievents.h"
+#include "flash.h"
 #include "rtc.h"
 #include "configuration.h"
 #include "communication.h"
@@ -116,9 +118,17 @@ void user_init(void) {
 	
 	init_rtc();
 	
+	ievents_init();
+	
 	raw_adc_data_buffer = xMessageBufferCreate(RAW_ADC_DATA_BUFFER_SIZE * (sizeof(raw_adc_data_t) + 4));
 	
 	gpio_set_interrupt(READY_PIN, GPIO_INTTYPE_EDGE_POS, ads_ready_handle);
+	
+	debug("Searching data in flash.\n");
+	
+	flash_search_power_data();
+	flash_search_power_events();
+	flash_search_internal_events();
 	
 	debug("Starting tasks.\n");
 	

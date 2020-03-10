@@ -13,14 +13,16 @@
 #include <semphr.h>
 
 #include "common.h"
+#include "power.h"
+#include "ievents.h"
 #include "configuration.h"
 #include "sampling.h"
+#include "flash.h"
 #include "rtc.h"
-#include "ievents.h"
-#include "power.h"
 
-power_data_t processed_data[PROCESSED_DATA_BUFFER_SIZE];
-uint16_t processed_data_head, processed_data_tail, processed_data_count;
+
+power_data_t power_data[POWER_DATA_BUFFER_SIZE];
+uint16_t power_data_head, power_data_tail, power_data_count;
 
 power_event_t power_events[POWER_EVENT_BUFFER_SIZE];
 uint16_t power_events_head, power_events_tail, power_events_count;
@@ -28,18 +30,24 @@ uint16_t power_events_head, power_events_tail, power_events_count;
 float waveform_buffer[4][WAVEFORM_MAX_QTY];
 uint16_t waveform_buffer_pos;
 
-SemaphoreHandle_t processed_data_mutex = NULL;
+SemaphoreHandle_t power_data_mutex = NULL;
 SemaphoreHandle_t power_events_mutex = NULL;
 SemaphoreHandle_t waveform_buffer_mutex = NULL;
 
-unsigned int power_event_min_count[POWER_EVENT_TYPE_QTY] = {1, 1, 1, 2, 2, 1};
+unsigned int power_event_min_count[POWER_EVENT_TYPE_QTY] = {1, 1, 1, 2, 2, 2};
 
+int add_power_data(const power_data_t *data);
 int add_power_event(const power_event_t *pev);
 
 void power_processing_task(void *pvParameters) {
 	raw_adc_data_t raw_adc_data;
 	
+	power_data_t aux_power_data;
+	power_data_flash_t aux_power_data_flash;
 	power_event_t aux_power_event;
+	internal_event_t aux_internal_event;
+	
+	int flash_error;
 	
 	int raw_adc_data_processed_counter = 0;
 	uint32_t first_sample_usecs;
@@ -70,13 +78,13 @@ void power_processing_task(void *pvParameters) {
 	float pevent_irms[2];
 	float pevent_freq[2];
 	
-	processed_data_mutex = xSemaphoreCreateMutex();
+	power_data_mutex = xSemaphoreCreateMutex();
 	power_events_mutex = xSemaphoreCreateMutex();
 	waveform_buffer_mutex = xSemaphoreCreateMutex();
 	
-	processed_data_head = 0;
-	processed_data_tail = 0;
-	processed_data_count = 0;
+	power_data_head = 0;
+	power_data_tail = 0;
+	power_data_count = 0;
 	
 	config_power_phases = MAX(config_power_phases, 1);
 	config_power_phases = MIN(config_power_phases, 2);
@@ -92,14 +100,14 @@ void power_processing_task(void *pvParameters) {
 		if(xMessageBufferReceive(raw_adc_data_buffer, (void*) &raw_adc_data, sizeof(raw_adc_data_t), pdMS_TO_TICKS(200)) == 0) {
 			if(status_sampling_running) {
 				status_sampling_running = 0;
-				add_ievent(IEVENT_TYPE_SAMPLING_STOPPED, 0, get_time());
+				add_internal_event(IEVENT_TYPE_SAMPLING_STOPPED, 0, get_time());
 			}
 			
 			continue;
 		}
 		
 		if(raw_adc_data_count == RAW_ADC_DATA_BUFFER_SIZE)
-				add_ievent(IEVENT_TYPE_ADC_BUFFER_FULL, raw_adc_data_count, get_time());
+				add_internal_event(IEVENT_TYPE_ADC_BUFFER_FULL, raw_adc_data_count, get_time());
 		
 		raw_adc_data_count--;
 		
@@ -256,28 +264,26 @@ void power_processing_task(void *pvParameters) {
 		xSemaphoreGive(waveform_buffer_mutex);
 		
 		if((raw_adc_data.usecs_since_time - first_sample_usecs) >= 1000000) {
-			xSemaphoreTake(processed_data_mutex, pdMS_TO_TICKS(200));
+			aux_power_data.timestamp = first_sample_rtc_time + first_sample_usecs / 1000000U;
+			aux_power_data.duration_usec = raw_adc_data.usecs_since_time - first_sample_usecs;
+			aux_power_data.samples = raw_adc_data_processed_counter;
 			
-			processed_data[processed_data_head].timestamp = first_sample_rtc_time + first_sample_usecs / 1000000U;
-			processed_data[processed_data_head].duration_usec = raw_adc_data.usecs_since_time - first_sample_usecs;
-			processed_data[processed_data_head].samples = raw_adc_data_processed_counter;
+			aux_power_data.vrms[0] = sqrtf(vrms_acc[0] / (float) raw_adc_data_processed_counter);
+			aux_power_data.vrms[1] = sqrtf(vrms_acc[1] / (float) raw_adc_data_processed_counter);
 			
-			processed_data[processed_data_head].vrms[0] = sqrtf(vrms_acc[0] / (float) raw_adc_data_processed_counter);
-			processed_data[processed_data_head].vrms[1] = sqrtf(vrms_acc[1] / (float) raw_adc_data_processed_counter);
+			aux_power_data.irms[0] = sqrtf(irms_acc[0] / (float) raw_adc_data_processed_counter);
+			aux_power_data.irms[1] = sqrtf(irms_acc[1] / (float) raw_adc_data_processed_counter);
 			
-			processed_data[processed_data_head].irms[0] = sqrtf(irms_acc[0] / (float) raw_adc_data_processed_counter);
-			processed_data[processed_data_head].irms[1] = sqrtf(irms_acc[1] / (float) raw_adc_data_processed_counter);
+			aux_power_data.p[0] = p_acc[0] / (float) raw_adc_data_processed_counter;
+			aux_power_data.p[1] = p_acc[1] / (float) raw_adc_data_processed_counter;
 			
-			processed_data[processed_data_head].p[0] = p_acc[0] / (float) raw_adc_data_processed_counter;
-			processed_data[processed_data_head].p[1] = p_acc[1] / (float) raw_adc_data_processed_counter;
+			add_power_data(&aux_power_data);
 			
-			processed_data_head = (processed_data_head + 1) % PROCESSED_DATA_BUFFER_SIZE;
-			if(processed_data_head == processed_data_tail)
-				processed_data_tail = (processed_data_tail + 1) % PROCESSED_DATA_BUFFER_SIZE;
-			else
-				processed_data_count++;
+			vrms_acc[0] = vrms_acc[1] = 0.0;
+			irms_acc[0] = irms_acc[1] = 0.0;
+			p_acc[0] = p_acc[1] = 0.0;
 			
-			xSemaphoreGive(processed_data_mutex);
+			raw_adc_data_processed_counter = 0;
 			
 			for(int ch = 0; ch < 2; ch++)
 				for(int evt = 0; evt < POWER_EVENT_TYPE_QTY; evt++) {
@@ -295,43 +301,150 @@ void power_processing_task(void *pvParameters) {
 					pevents_count[ch][evt] = 0;
 				}
 			
-			vrms_acc[0] = vrms_acc[1] = 0.0;
-			irms_acc[0] = irms_acc[1] = 0.0;
-			p_acc[0] = p_acc[1] = 0.0;
-			
-			raw_adc_data_processed_counter = 0;
+			if(!status_server_connected && config_use_flash_storage && (power_data_count >= 60 || power_events_count == POWER_EVENT_BUFFER_SIZE || internal_events_count == IEVENT_BUFFER_SIZE)) {
+				flash_error = 0;
+				
+				pause_sampling();
+				
+				if(power_data_count >= 60)
+					if(!convert_power_data_flash(&aux_power_data_flash))
+						if(flash_add_power_data(&aux_power_data_flash))
+							flash_error++;
+				
+				for(int i = 0; i < power_events_count; i++)
+					if(!get_power_event(&aux_power_event, i)) {
+						if(flash_add_power_event(&aux_power_event)) {
+							flash_error++;
+							break;
+						} else {
+							delete_power_events(1);
+						}
+					}
+				
+				for(int i = 0; i < internal_events_count; i++)
+					if(!get_internal_event(&aux_internal_event, i)) {
+						if(flash_add_internal_event(&aux_internal_event)) {
+							flash_error++;
+							break;
+						} else {
+							delete_internal_events(1);
+						}
+					}
+				
+				if(flash_error < 3)
+					start_sampling();
+			}
 		}
 	}
 }
 
-int get_power_data(power_data_t *data, unsigned int index) {
-	xSemaphoreTake(processed_data_mutex, pdMS_TO_TICKS(300));
+int add_power_data(const power_data_t *data) {
+	xSemaphoreTake(power_data_mutex, pdMS_TO_TICKS(300));
 	
-	if(index >= processed_data_count) {
-		xSemaphoreGive(processed_data_mutex);
+	if(power_data_count == POWER_DATA_BUFFER_SIZE) {
+		xSemaphoreGive(power_data_mutex);
+		
+		return -1;
+	}
+	
+	memcpy(&power_data[power_data_head], data, sizeof(power_data_t));
+	
+	power_data_head = (power_data_head + 1) % POWER_DATA_BUFFER_SIZE;
+	power_data_count++;
+	
+	if(power_data_count == POWER_DATA_BUFFER_SIZE)
+		add_internal_event(IEVENT_TYPE_POWER_DATA_BUFFER_FULL, power_data_count, get_time());
+	
+	xSemaphoreGive(power_data_mutex);
+	
+	return 0;
+}
+
+int get_power_data(power_data_t *data, unsigned int index) {
+	xSemaphoreTake(power_data_mutex, pdMS_TO_TICKS(300));
+	
+	if(index >= power_data_count) {
+		xSemaphoreGive(power_data_mutex);
 		return 1;
 	}
 	
-	memcpy(data, &processed_data[(processed_data_tail + index) % PROCESSED_DATA_BUFFER_SIZE], sizeof(power_data_t));
+	memcpy(data, &power_data[(power_data_tail + index) % POWER_DATA_BUFFER_SIZE], sizeof(power_data_t));
 	
-	xSemaphoreGive(processed_data_mutex);
+	xSemaphoreGive(power_data_mutex);
 	
 	return 0;
 }
 
 int delete_power_data(unsigned int qty) {
-	int real_qty;
+	xSemaphoreTake(power_data_mutex, pdMS_TO_TICKS(500));
 	
-	xSemaphoreTake(processed_data_mutex, pdMS_TO_TICKS(500));
+	if(qty > power_data_count) {
+		xSemaphoreGive(power_data_mutex);
+		
+		return -1;
+	}
 	
-	real_qty = MIN(qty, processed_data_count);
+	power_data_tail = (power_data_tail + qty) % POWER_DATA_BUFFER_SIZE;
+	power_data_count -= qty;
 	
-	processed_data_tail = (processed_data_tail + real_qty) % PROCESSED_DATA_BUFFER_SIZE;
-	processed_data_count -= real_qty;
+	xSemaphoreGive(power_data_mutex);
 	
-	xSemaphoreGive(processed_data_mutex);
+	return 0;
+}
+
+int convert_power_data_flash(power_data_flash_t *data) {
+	int minute, second;
+	int last_second;
+	int second_counter;
 	
-	return real_qty;
+	float q[2];
+	
+	xSemaphoreTake(power_data_mutex, pdMS_TO_TICKS(500));
+	
+	second_counter = 0;
+	minute = 60;
+	second = -1;
+	
+	while(power_data_count) {
+		if((power_data[power_data_tail].timestamp % 3600) / 60 != minute) {
+			if(second_counter >= 15)
+				break;
+			
+			data->timestamp = power_data[power_data_tail].timestamp - (power_data[power_data_tail].timestamp % 60);
+			
+			second_counter = 0;
+			second = -1;
+			
+			data->active[0] = 0.0;
+			data->active[1] = 0.0;
+			data->reactive[0] = 0.0;
+			data->reactive[1] = 0.0;
+		}
+		
+		last_second = second;
+		second = power_data[power_data_tail].timestamp % 60;
+		minute = (power_data[power_data_tail].timestamp % 3600) / 60;
+		
+		for(int ch = 0; ch < 2; ch++) {
+			data->active[ch] += (power_data[power_data_tail].p[ch] * (float) (second - last_second)) / 3600.0;
+			q[ch] = sqrt(pow((power_data[power_data_tail].vrms[ch] * power_data[power_data_tail].irms[ch]), 2) - pow(power_data[power_data_tail].p[ch], 2));
+			data->reactive[ch] += (q[ch] * (float) (second - last_second)) / 3600.0;
+		}
+		
+		power_data_tail = (power_data_tail + 1) % POWER_DATA_BUFFER_SIZE;
+		power_data_count--;
+		
+		second_counter++;
+	}
+	
+	xSemaphoreGive(power_data_mutex);
+	
+	data->seconds = second_counter;
+	
+	if(second_counter < 15)
+		return -1;
+	
+	return 0;
 }
 
 int add_power_event(const power_event_t *pev) {
@@ -349,20 +462,19 @@ int add_power_event(const power_event_t *pev) {
 	power_events_count++;
 	
 	if(power_events_count == POWER_EVENT_BUFFER_SIZE)
-		add_ievent(IEVENT_TYPE_POWER_EVENTS_BUFFER_FULL, power_events_count, get_time());
-	
+		add_internal_event(IEVENT_TYPE_POWER_EVENTS_BUFFER_FULL, power_events_count, get_time());
 	
 	xSemaphoreGive(power_events_mutex);
 	
 	return 0;
 }
 
-int get_power_events(power_event_t *data, unsigned int index) {
+int get_power_event(power_event_t *data, unsigned int index) {
 	xSemaphoreTake(power_events_mutex, pdMS_TO_TICKS(300));
 	
 	if(index >= power_events_count) {
 		xSemaphoreGive(power_events_mutex);
-		return 1;
+		return -1;
 	}
 	
 	memcpy(data, &power_events[(power_events_tail + index) % POWER_EVENT_BUFFER_SIZE], sizeof(power_event_t));
@@ -373,18 +485,20 @@ int get_power_events(power_event_t *data, unsigned int index) {
 }
 
 int delete_power_events(unsigned int qty) {
-	int real_qty;
-	
 	xSemaphoreTake(power_events_mutex, pdMS_TO_TICKS(500));
 	
-	real_qty = MIN(qty, power_events_count);
+	if(qty > power_events_count) {
+		xSemaphoreGive(power_events_mutex);
+		
+		return -1;
+	}
 	
-	power_events_tail = (power_events_tail + real_qty) % POWER_EVENT_BUFFER_SIZE;
-	power_events_count -= real_qty;
+	power_events_tail = (power_events_tail + qty) % POWER_EVENT_BUFFER_SIZE;
+	power_events_count -= qty;
 	
 	xSemaphoreGive(power_events_mutex);
 	
-	return real_qty;
+	return 0;
 }
 
 void get_waveform(float *buffer, unsigned int channel, unsigned int qty) {

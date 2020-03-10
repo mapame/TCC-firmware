@@ -157,7 +157,7 @@ int start_sampling() {
 	read_temp_flag = 0;
 	
 	if(adc_config()) {
-		add_ievent(IEVENT_TYPE_I2C_ERROR, 1, get_time());
+		add_internal_event(IEVENT_TYPE_I2C_ERROR, 1, get_time());
 		return -3;
 	}
 	
@@ -174,7 +174,7 @@ int start_sampling() {
 	ads111x_start_conversion(&adc_device[2]);
 	
 	if(ads111x_get_error_count(&adc_device[0]) || ads111x_get_error_count(&adc_device[1]) || ads111x_get_error_count(&adc_device[2])) {
-		add_ievent(IEVENT_TYPE_I2C_ERROR, 1, get_time());
+		add_internal_event(IEVENT_TYPE_I2C_ERROR, 1, get_time());
 		
 		return -3;
 	}
@@ -185,7 +185,13 @@ int start_sampling() {
 }
 
 void pause_sampling() {
+	if(status_sampling_running != 1)
+		return;
+	
 	status_sampling_running = 2;
+	
+	while(status_sampling_running == 2)
+		vTaskDelay(pdMS_TO_TICKS(20));
 }
 
 int adc_config() {

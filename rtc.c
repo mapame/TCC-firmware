@@ -69,7 +69,7 @@ uint32_t get_time() {
 			xSemaphoreGive(rtc_mutex);
 			
 			if(result == -1)
-				add_ievent(IEVENT_TYPE_I2C_ERROR, 2, rtc_time);
+				add_internal_event(IEVENT_TYPE_I2C_ERROR, 2, rtc_time);
 			
 			return 0;
 		}
@@ -113,13 +113,13 @@ int update_rtc(uint32_t new_time) {
 		return -1;
 	
 	if(!ds3231_clearOscillatorStopFlag(&rtc_dev)) {
-		add_ievent(IEVENT_TYPE_I2C_ERROR, 2, rtc_time);
+		add_internal_event(IEVENT_TYPE_I2C_ERROR, 2, rtc_time);
 		
 		return -2;
 	}
 	
 	if(ds3231_setTime(&rtc_dev, &new_time_tm)) {
-		add_ievent(IEVENT_TYPE_I2C_ERROR, 2, rtc_time);
+		add_internal_event(IEVENT_TYPE_I2C_ERROR, 2, rtc_time);
 		
 		return -2;
 	}
