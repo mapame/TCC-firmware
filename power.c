@@ -50,8 +50,8 @@ void power_processing_task(void *pvParameters) {
 	int flash_error;
 	
 	int raw_adc_data_processed_counter = 0;
-	uint32_t first_sample_usecs;
-	uint32_t first_sample_rtc_time;
+	uint32_t first_sample_usecs = 0;
+	uint32_t first_sample_rtc_time = 0;
 	
 	float v[2];
 	float i[2];
@@ -85,9 +85,6 @@ void power_processing_task(void *pvParameters) {
 	power_data_head = 0;
 	power_data_tail = 0;
 	power_data_count = 0;
-	
-	config_power_phases = MAX(config_power_phases, 1);
-	config_power_phases = MIN(config_power_phases, 2);
 	
 	for(int evt = 0; evt < POWER_EVENT_TYPE_QTY; evt++) {
 		pevents_count[0][evt] = 0;

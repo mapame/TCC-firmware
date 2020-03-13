@@ -1,5 +1,5 @@
 #define FW_TYPE 1
-#define FW_VERSION "0.0.26"
+#define FW_VERSION "0.0.27"
 
 //#define DEBUG
 
@@ -34,6 +34,8 @@
 #define MIN_DISCONNECTION_TIME_MS 200
 
 #define SECURITY_CHECK_MAC 1
+
+#define WIFI_AP_SSID "matawatt AP"
 
 typedef enum {
 	LED_OFF,

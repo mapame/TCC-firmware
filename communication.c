@@ -194,7 +194,7 @@ void network_task(void *pvParameters) {
 					
 					break;
 				case OP_CONFIG_READ:
-					if(configuration_read(received_parameters[0], response_parameters)) {
+					if(configuration_read(received_parameters[0], response_parameters, 1)) {
 						response_code = R_ERR_UNSPECIFIED;
 						break;
 					}
@@ -565,7 +565,7 @@ static int parse_parameters(char *parameter_buffer, char parsed_parameters[][PAR
 		return 0;
 	
 	while((token = strtok_r(buffer_ptr, "\t", &saveptr)) && count < parameter_qty && count < PARAM_MAX_QTY) {
-		if(strlen(token) >= PARAM_STR_SIZE)
+		if(strlen(token) >= (PARAM_STR_SIZE - 1))
 			break;
 		
 		strcpy(parsed_parameters[count], token);

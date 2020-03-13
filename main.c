@@ -8,6 +8,7 @@
 #include <math.h>
 
 #include <i2c/i2c.h>
+#include <dhcpserver.h>
 
 #include <FreeRTOS.h>
 #include <task.h>
@@ -27,6 +28,8 @@ TaskHandle_t power_processing_task_handle, blink_task_handle;
 
 uint8_t status_sampling_running;
 uint8_t status_server_connected;
+
+void setup_task(void *pvParameters);
 
 void set_led_color(int color);
 
@@ -62,6 +65,8 @@ void set_led_color(int color) {
 void user_init(void) {
 	int button;
 	
+	struct sdk_station_config wifi_config;
+	
 	uart_set_baud(0, 115200);
 	
 	debug("Firmware version: "FW_VERSION"\n");
@@ -75,6 +80,10 @@ void user_init(void) {
 	
 	gpio_set_pullup(BTN_PIN, 0, 0);
 	
+	set_led_color(LED_OFF);
+	
+	vTaskDelay(pdMS_TO_TICKS(500));
+	
 	button = 0;
 	for(int i = LED_COLOR_RED; i <= LED_COLOR_TEAL; i++) {
 		set_led_color(i);
@@ -84,22 +93,48 @@ void user_init(void) {
 		vTaskDelay(pdMS_TO_TICKS(400));
 	}
 	
-	/*
-	if(button > 6) {
-		
-	}
-	*/
-	
 	load_configuration();
 	
-	if(strlen(config_wifi_ssid) < 1 || strcmp(config_wifi_ssid, "###NOT_SET###") == 0
-	|| strlen(config_wifi_password) < 1 || strcmp(config_wifi_password, "###NOT_SET###") == 0
-	|| strlen(config_mac_password) < 1 || strcmp(config_mac_password, "###NOT_SET###") == 0) {
+	if(button > 3 || strlen(config_wifi_ssid) < 1 || strcmp(config_wifi_ssid, "###NOT_SET###") == 0
+		|| strlen(config_wifi_password) < 1 || strcmp(config_wifi_password, "###NOT_SET###") == 0
+		|| strlen(config_mac_password) < 1 || strcmp(config_mac_password, "###NOT_SET###") == 0) {
+		
+		struct sdk_softap_config ap_config;
+		struct ip_info ap_ip;
+		ip4_addr_t dhcp_first_ip;
+		
 		debug("Device not configured.\n");
+		set_led_color(LED_COLOR_WHITE);
+		
+		sdk_wifi_set_opmode(SOFTAP_MODE);
+		
+		IP4_ADDR(&ap_ip.ip, 10, 0, 0, 1);
+		IP4_ADDR(&ap_ip.gw, 0, 0, 0, 0);
+		IP4_ADDR(&ap_ip.netmask, 255, 255, 0, 0);
+		
+		sdk_wifi_set_ip_info(1, &ap_ip);
+		
+		strcpy((char *)ap_config.ssid, WIFI_AP_SSID);
+		strcpy((char *)ap_config.password, config_wifi_ap_password);
+		
+		ap_config.ssid_len = strlen(WIFI_AP_SSID);
+		ap_config.ssid_hidden = 0;
+		ap_config.channel = 1;
+		ap_config.authmode = AUTH_WPA_WPA2_PSK;
+		ap_config.max_connection = 2;
+		ap_config.beacon_interval = 100;
+		
+		sdk_wifi_softap_set_config(&ap_config);
+		
+		dhcp_first_ip.addr = ap_ip.ip.addr + htonl(1);
+		
+		dhcpserver_start(&dhcp_first_ip, 3);
+		dhcpserver_set_router(&ap_ip.ip);
+		
+		xTaskCreate(&setup_task, "setup_task", 256, NULL, 2, NULL);
+		
 		return;
 	}
-	
-	struct sdk_station_config wifi_config;
 	
 	strcpy((char *)wifi_config.ssid, config_wifi_ssid);
 	strcpy((char *)wifi_config.password, config_wifi_password);
@@ -109,6 +144,8 @@ void user_init(void) {
 	
 	vTaskDelay(pdMS_TO_TICKS(100));
 	
+	ievents_init();
+	
 	debug("Initializing I2C bus.\n");
 	
 	if(i2c_init(I2C_BUS, SCL_PIN, SDA_PIN, I2C_FREQ_500K)) {
@@ -117,8 +154,6 @@ void user_init(void) {
 	}
 	
 	init_rtc();
-	
-	ievents_init();
 	
 	raw_adc_data_buffer = xMessageBufferCreate(RAW_ADC_DATA_BUFFER_SIZE * (sizeof(raw_adc_data_t) + 4));
 	

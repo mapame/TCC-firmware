@@ -146,6 +146,9 @@ int start_sampling() {
 	if(raw_adc_data_buffer == NULL)
 		return -2;
 	
+	config_power_phases = MAX(config_power_phases, 1);
+	config_power_phases = MIN(config_power_phases, 2);
+	
 	adc_discard_cycles = 4;
 	adc_ac_rise = 0;
 	adc_samples_since_switch = 0;
