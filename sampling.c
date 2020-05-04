@@ -177,7 +177,7 @@ int start_sampling() {
 	ads111x_start_conversion(&adc_device[2]);
 	
 	if(ads111x_get_error_count(&adc_device[0]) || ads111x_get_error_count(&adc_device[1]) || ads111x_get_error_count(&adc_device[2])) {
-		add_internal_event(IEVENT_TYPE_I2C_ERROR, 1, get_time());
+		add_internal_event(IEVENT_TYPE_I2C_ERROR, 2, get_time());
 		
 		return -3;
 	}
