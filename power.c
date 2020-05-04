@@ -47,6 +47,7 @@ void power_processing_task(void *pvParameters) {
 	power_event_t aux_power_event;
 	internal_event_t aux_internal_event;
 	
+	int empty_msgbuf = 0;
 	int flash_error;
 	
 	int raw_adc_data_processed_counter = 0;
@@ -95,13 +96,16 @@ void power_processing_task(void *pvParameters) {
 	
 	while(true) {
 		if(xMessageBufferReceive(raw_adc_data_buffer, (void*) &raw_adc_data, sizeof(raw_adc_data_t), pdMS_TO_TICKS(200)) == 0) {
-			if(status_sampling_running) {
+			if(status_sampling_running && ++empty_msgbuf >= 3) {
+				empty_msgbuf = 0;
 				status_sampling_running = 0;
 				add_internal_event(IEVENT_TYPE_SAMPLING_STOPPED, 0, get_time());
 			}
 			
 			continue;
 		}
+		
+		empty_msgbuf = 0;
 		
 		if(raw_adc_data_count == RAW_ADC_DATA_BUFFER_SIZE)
 				add_internal_event(IEVENT_TYPE_ADC_BUFFER_FULL, raw_adc_data_count, get_time());
@@ -338,19 +342,14 @@ void power_processing_task(void *pvParameters) {
 int add_power_data(const power_data_t *data) {
 	xSemaphoreTake(power_data_mutex, pdMS_TO_TICKS(300));
 	
-	if(power_data_count == POWER_DATA_BUFFER_SIZE) {
-		xSemaphoreGive(power_data_mutex);
-		
-		return -1;
-	}
-	
 	memcpy(&power_data[power_data_head], data, sizeof(power_data_t));
 	
 	power_data_head = (power_data_head + 1) % POWER_DATA_BUFFER_SIZE;
-	power_data_count++;
 	
 	if(power_data_count == POWER_DATA_BUFFER_SIZE)
-		add_internal_event(IEVENT_TYPE_POWER_DATA_BUFFER_FULL, power_data_count, get_time());
+		power_data_tail = (power_data_tail + 1) % POWER_DATA_BUFFER_SIZE;
+	else
+		power_data_count++;
 	
 	xSemaphoreGive(power_data_mutex);
 	
