@@ -169,7 +169,7 @@ void network_task(void *pvParameters) {
 						update_rtc(received_timestamp);
 					
 					protocol_started = 1;
-					sprintf(response_parameters, "%d\t%s\t%s\t%d\t", FW_TYPE, config_device_id, FW_VERSION, CONFIG_NUMBER);
+					sprintf(response_parameters, "%d\t%s\t%s\t", FW_TYPE, config_device_id, FW_VERSION);
 					break;
 				case OP_SAMPLING_START:
 					if(!status_sampling_running) {
@@ -250,15 +250,17 @@ void network_task(void *pvParameters) {
 							if(aux_data_source == 'r') {
 								get_power_data(&aux_power_data, i);
 								
-								sprintf(response_parameters, "%u\t%u\t%u\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t", aux_power_data.timestamp,
-																													aux_power_data.samples, aux_power_data.duration_usec,
-																													aux_power_data.vrms[0], aux_power_data.vrms[1],
-																													aux_power_data.irms[0], aux_power_data.irms[1],
-																													aux_power_data.p[0], aux_power_data.p[1]);
+								sprintf(response_parameters, "%u\t%u\t%u\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t", aux_power_data.timestamp,
+																																	aux_power_data.samples, aux_power_data.duration_usec,
+																																	aux_power_data.vrms[0], aux_power_data.vrms[1], 0.0,
+																																	aux_power_data.irms[0], aux_power_data.irms[1], 0.0,
+																																	aux_power_data.p[0], aux_power_data.p[1], 0.0);
 							} else {
 								flash_get_power_data(&aux_power_data_flash, i);
 								
-								sprintf(response_parameters, "%u\t%u\t%.3f\t%.3f\t%.3f\t%.3f\t", aux_power_data_flash.timestamp, aux_power_data_flash.seconds, aux_power_data_flash.active[0], aux_power_data_flash.active[1], aux_power_data_flash.reactive[0], aux_power_data_flash.reactive[1]);
+								sprintf(response_parameters, "%u\t%u\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t", aux_power_data_flash.timestamp, aux_power_data_flash.seconds,
+																												aux_power_data_flash.active[0], aux_power_data_flash.active[1], 0.0,
+																												aux_power_data_flash.reactive[0], aux_power_data_flash.reactive[1], 0.0);
 							}
 							
 							send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, R_SUCESS, response_parameters);
