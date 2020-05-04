@@ -34,7 +34,7 @@ SemaphoreHandle_t power_data_mutex = NULL;
 SemaphoreHandle_t power_events_mutex = NULL;
 SemaphoreHandle_t waveform_buffer_mutex = NULL;
 
-unsigned int power_event_min_count[POWER_EVENT_TYPE_QTY] = {1, 1, 1, 2, 2, 2};
+unsigned int power_event_min_count[POWER_EVENT_TYPE_QTY] = {5, 5, 1, 6, 6, 10};
 
 int add_power_data(const power_data_t *data);
 int add_power_event(const power_event_t *pev);
