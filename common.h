@@ -1,5 +1,5 @@
 #define FW_TYPE 1
-#define FW_VERSION "0.30.0"
+#define FW_VERSION "30"
 
 //#define DEBUG
 
