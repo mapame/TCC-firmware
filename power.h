@@ -14,7 +14,6 @@ typedef struct power_data_flash_s {
 	uint32_t timestamp;
 	uint32_t seconds;
 	float active[2];
-	float reactive[2];
 } power_data_flash_t;
 
 typedef struct power_event_s {

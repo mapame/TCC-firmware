@@ -258,9 +258,8 @@ void network_task(void *pvParameters) {
 							} else {
 								flash_get_power_data(&aux_power_data_flash, i);
 								
-								sprintf(response_parameters, "%u\t%u\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t", aux_power_data_flash.timestamp, aux_power_data_flash.seconds,
-																												aux_power_data_flash.active[0], aux_power_data_flash.active[1], 0.0,
-																												aux_power_data_flash.reactive[0], aux_power_data_flash.reactive[1], 0.0);
+								sprintf(response_parameters, "%u\t%u\t%.3f\t%.3f\t%.3f\t", aux_power_data_flash.timestamp, aux_power_data_flash.seconds,
+																												aux_power_data_flash.active[0], aux_power_data_flash.active[1], 0.0);
 							}
 							
 							send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, R_SUCESS, response_parameters);

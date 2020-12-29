@@ -393,8 +393,6 @@ int convert_power_data_flash(power_data_flash_t *data) {
 	int last_second;
 	int second_counter;
 	
-	float q[2];
-	
 	xSemaphoreTake(power_data_mutex, pdMS_TO_TICKS(500));
 	
 	second_counter = 0;
@@ -413,19 +411,14 @@ int convert_power_data_flash(power_data_flash_t *data) {
 			
 			data->active[0] = 0.0;
 			data->active[1] = 0.0;
-			data->reactive[0] = 0.0;
-			data->reactive[1] = 0.0;
 		}
 		
 		last_second = second;
 		second = power_data[power_data_tail].timestamp % 60;
 		minute = (power_data[power_data_tail].timestamp % 3600) / 60;
 		
-		for(int ch = 0; ch < 2; ch++) {
+		for(int ch = 0; ch < config_power_phases; ch++)
 			data->active[ch] += (power_data[power_data_tail].p[ch] * (float) (second - last_second)) / 3600.0;
-			q[ch] = sqrt(pow((power_data[power_data_tail].vrms[ch] * power_data[power_data_tail].irms[ch]), 2) - pow(power_data[power_data_tail].p[ch], 2));
-			data->reactive[ch] += (q[ch] * (float) (second - last_second)) / 3600.0;
-		}
 		
 		power_data_tail = (power_data_tail + 1) % POWER_DATA_BUFFER_SIZE;
 		power_data_count--;
