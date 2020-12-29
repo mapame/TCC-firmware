@@ -169,7 +169,7 @@ void network_task(void *pvParameters) {
 						update_rtc(received_timestamp);
 					
 					protocol_started = 1;
-					sprintf(response_parameters, "%d\t%s\t%s\t", FW_TYPE, config_device_id, FW_VERSION);
+					sprintf(response_parameters, "%s\t%s\t", config_device_id, FW_VERSION);
 					break;
 				case OP_SAMPLING_START:
 					if(!status_sampling_running) {

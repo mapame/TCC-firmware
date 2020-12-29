@@ -90,7 +90,7 @@ void setup_task(void *pvParameters) {
 		
 		
 		telnet_send_line(client_socket, "Mattawat Configuration Console.");
-		sprintf(send_buffer, "Firmare type %u version %s", FW_TYPE, FW_VERSION);
+		sprintf(send_buffer, "Firmare version: %s", FW_VERSION);
 		telnet_send_line(client_socket, send_buffer);
 		telnet_send_line(client_socket, "Type help for list of commands.");
 		
