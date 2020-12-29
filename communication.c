@@ -21,7 +21,6 @@
 #include "sampling.h"
 #include "power.h"
 #include "ievents.h"
-#include "flash.h"
 #include "communication.h"
 #include "configuration.h"
 #include "rtc.h"
@@ -48,8 +47,8 @@ opcode_metadata_t opcode_metadata_list[OPCODE_NUM] = {
 	{"RE", 0},
 	{"FU", 1},
 	{"QS", 0},
-	{"GD", 3},
-	{"DD", 3},
+	{"GD", 2},
+	{"DD", 2},
 	{"GW", 2},
 	{"BY", 1}
 };
@@ -126,10 +125,8 @@ void network_task(void *pvParameters) {
 			char received_parameters[PARAM_MAX_QTY][PARAM_STR_SIZE];
 			
 			int aux_result;
-			char aux_data_source;
 			
 			power_data_t aux_power_data;
-			power_data_flash_t aux_power_data_flash;
 			power_event_t aux_power_event;
 			internal_event_t aux_internal_event;
 			
@@ -218,66 +215,43 @@ void network_task(void *pvParameters) {
 					strlcpy(received_ota_hash_text, received_parameters[0], 33);
 					break;
 				case OP_QUERY_STATUS:
-					sprintf(response_parameters, "%u\t%u\t%.2f\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t", status_sampling_running, (xTaskGetTickCount() / configTICK_RATE_HZ), get_temp(), get_time(), rtc_oscillator_stopped, internal_events_count, power_events_count, power_data_count, flash_internal_events_count, flash_power_events_count, flash_power_data_count);
+					sprintf(response_parameters, "%u\t%u\t%.2f\t%u\t%u\t%u\t%u\t%u\t", status_sampling_running, (xTaskGetTickCount() / configTICK_RATE_HZ), get_temp(), get_time(), rtc_oscillator_stopped, internal_events_count, power_events_count, power_data_count);
 					rtc_oscillator_stopped = 0;
 					
 					break;
 				case OP_GET_DATA:
-					aux_data_source = *received_parameters[1];
-					
-					if(aux_data_source != 'f' && aux_data_source != 'r') {
-						response_code = R_ERR_INVALID_PARAMETER;
-						break;
-					}
-					
-					if(status_sampling_running && aux_data_source == 'f') {
-						response_code = R_ERR_SAMPLING_RUNNING;
-						break;
-					}
-					
-					if(sscanf(received_parameters[2], "%u", &aux_qty) != 1) {
+					if(sscanf(received_parameters[1], "%u", &aux_qty) != 1) {
 						response_code = R_ERR_INVALID_PARAMETER;
 						break;
 					}
 					
 					if(strcmp(received_parameters[0], "pd") == 0) {
-						if(aux_qty > ((aux_data_source == 'r') ? power_data_count : flash_power_data_count)) {
+						if(aux_qty > power_data_count) {
 							response_code = R_ERR_INVALID_PARAMETER;
 							break;
 						}
 						
 						for(int i = 0; i < aux_qty; i++) {
-							if(aux_data_source == 'r') {
-								get_power_data(&aux_power_data, i);
-								
-								sprintf(response_parameters, "%u\t%u\t%u\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t", aux_power_data.timestamp,
-																																	aux_power_data.samples, aux_power_data.duration_usec,
-																																	aux_power_data.vrms[0], aux_power_data.vrms[1], 0.0,
-																																	aux_power_data.irms[0], aux_power_data.irms[1], 0.0,
-																																	aux_power_data.p[0], aux_power_data.p[1], 0.0);
-							} else {
-								flash_get_power_data(&aux_power_data_flash, i);
-								
-								sprintf(response_parameters, "%u\t%u\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t", aux_power_data_flash.timestamp, aux_power_data_flash.seconds,
-																												aux_power_data_flash.active[0], aux_power_data_flash.active[1], 0.0,
-																												aux_power_data_flash.reactive[0], aux_power_data_flash.reactive[1], 0.0);
-							}
+							get_power_data(&aux_power_data, i);
+							
+							sprintf(response_parameters, "%u\t%u\t%u\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t", aux_power_data.timestamp,
+																																aux_power_data.samples, aux_power_data.duration_usec,
+																																aux_power_data.vrms[0], aux_power_data.vrms[1], 0.0,
+																																aux_power_data.irms[0], aux_power_data.irms[1], 0.0,
+																																aux_power_data.p[0], aux_power_data.p[1], 0.0);
 							
 							send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, R_SUCESS, response_parameters);
 							if(send_result < 0)
 								break;
 						}
 					} else if(strcmp(received_parameters[0], "pe") == 0) {
-						if(aux_qty > ((aux_data_source == 'r') ? power_events_count : flash_power_events_count)) {
+						if(aux_qty > power_events_count) {
 							response_code = R_ERR_INVALID_PARAMETER;
 							break;
 						}
 						
 						for(int i = 0; i < aux_qty; i++) {
-							if(aux_data_source == 'r')
-								get_power_event(&aux_power_event, i);
-							else
-								flash_get_power_event(&aux_power_event, i);
+							get_power_event(&aux_power_event, i);
 							
 							sprintf(response_parameters, "%u\t%u\t%u\t%u\t%.3f\t%.3f\t", aux_power_event.timestamp, aux_power_event.type, aux_power_event.count, aux_power_event.channel, aux_power_event.avg_value, aux_power_event.worst_value);
 							send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, R_SUCESS, response_parameters);
@@ -285,16 +259,13 @@ void network_task(void *pvParameters) {
 								break;
 						}
 					} else if(strcmp(received_parameters[0], "ie") == 0) {
-						if(aux_qty > ((aux_data_source == 'r') ? internal_events_count : flash_internal_events_count)) {
+						if(aux_qty > internal_events_count) {
 							response_code = R_ERR_INVALID_PARAMETER;
 							break;
 						}
 						
 						for(int i = 0; i < aux_qty; i++) {
-							if(aux_data_source == 'r')
-								get_internal_event(&aux_internal_event, i);
-							else
-								flash_get_internal_event(&aux_internal_event, i);
+							get_internal_event(&aux_internal_event, i);
 							
 							sprintf(response_parameters, "%u\t%u\t%u\t%u\t", aux_internal_event.timestamp, aux_internal_event.type, aux_internal_event.count, aux_internal_event.value);
 							send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, R_SUCESS, response_parameters);
@@ -306,44 +277,19 @@ void network_task(void *pvParameters) {
 					}
 					break;
 				case OP_DELETE_DATA:
-					aux_data_source = *received_parameters[1];
-					
-					if(aux_data_source != 'f' && aux_data_source != 'r') {
-						response_code = R_ERR_INVALID_PARAMETER;
-						break;
-					}
-					
-					if(status_sampling_running && aux_data_source == 'f') {
-						response_code = R_ERR_SAMPLING_RUNNING;
-						break;
-					}
-					
-					if(sscanf(received_parameters[2], "%u", &aux_qty) != 1) {
+					if(sscanf(received_parameters[1], "%u", &aux_qty) != 1) {
 						response_code = R_ERR_INVALID_PARAMETER;
 						break;
 					}
 					
 					aux_result = 1;
 					
-					if(strcmp(received_parameters[0], "pd") == 0) {
-						if(aux_data_source == 'r')
-							aux_result = delete_power_data(aux_qty);
-						else
-							aux_result = flash_delete_power_data(aux_qty);
-						
-					} else if(strcmp(received_parameters[0], "pe") == 0) {
-						if(aux_data_source == 'r')
-							aux_result = delete_power_events(aux_qty);
-						else
-							aux_result = flash_delete_power_events(aux_qty);
-						
-					} else if(strcmp(received_parameters[0], "ie") == 0) {
-						if(aux_data_source == 'r')
-							aux_result = delete_internal_events(aux_qty);
-						else
-							aux_result = flash_delete_internal_events(aux_qty);
-						
-					}
+					if(strcmp(received_parameters[0], "pd") == 0)
+						aux_result = delete_power_data(aux_qty);
+					else if(strcmp(received_parameters[0], "pe") == 0)
+						aux_result = delete_power_events(aux_qty);
+					else if(strcmp(received_parameters[0], "ie") == 0)
+						aux_result = delete_internal_events(aux_qty);
 					
 					if(aux_result != 0)
 						response_code = R_ERR_INVALID_PARAMETER;

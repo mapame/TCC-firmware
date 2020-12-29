@@ -1,4 +1,4 @@
-#define CONFIG_NUMBER 19
+#define CONFIG_NUMBER 18
 #define CONFIG_STR_SIZE 64
 
 
@@ -9,7 +9,6 @@ extern char config_wifi_password[CONFIG_STR_SIZE];
 extern char config_mac_password[CONFIG_STR_SIZE];
 extern char config_server_ip[CONFIG_STR_SIZE];
 
-extern int config_use_flash_storage;
 extern int config_power_phases;
 
 extern float config_current_factors[2];

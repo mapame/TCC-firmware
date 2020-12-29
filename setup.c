@@ -17,7 +17,6 @@
 #include "configuration.h"
 #include "power.h"
 #include "ievents.h"
-#include "flash.h"
 
 static int recv_telnet_line(int socket_fd, char *buf, size_t len) {
 	int num = 0;
@@ -158,13 +157,6 @@ void setup_task(void *pvParameters) {
 				
 				telnet_send_line(client_socket, "Done.");
 				
-			} else if(!strcmp(receive_buffer, "erase")){
-				telnet_send(client_socket, "Erasing flash... ");
-				
-				erase_flash();
-				
-				telnet_send_line(client_socket, "Done.");
-				
 			} else if(!strcmp(receive_buffer, "help")){
 				telnet_send(client_socket,
 					"Available commands:\n"
@@ -173,7 +165,6 @@ void setup_task(void *pvParameters) {
 					" list            -> List configurations and its values\r\n"
 					" compact         -> Compact the sysparam area\r\n"
 					" restore         -> Restore configurations to its default values\r\n"
-					" erase           -> Erase data stored in flash\r\n"
 					" restart         -> Restart device\r\n"
 					" help            -> Show this message\r\n"
 				);

@@ -14,7 +14,6 @@ char config_wifi_password[CONFIG_STR_SIZE];
 char config_mac_password[CONFIG_STR_SIZE];
 char config_server_ip[CONFIG_STR_SIZE];
 
-int config_use_flash_storage;
 int config_power_phases;
 
 float config_current_factors[2];
@@ -42,7 +41,6 @@ const config_metadata_t configuration_table[CONFIG_NUMBER] = {
 	{"wifi_password",				's', "###NOT_SET###",	0, 1, (void*) &config_wifi_password},
 	{"mac_password",				's', "###NOT_SET###",	0, 0, (void*) &config_mac_password},
 	{"server_ip",					's', "###NOT_SET###",	1, 1, (void*) &config_server_ip},
-	{"use_flash_storage",			'i', "0",				1, 1, (void*) &config_use_flash_storage},
 	{"power_phases",				'i', "2",				1, 1, (void*) &config_power_phases},
 	{"current_factor1",				'f', "86.21",			1, 1, (void*) &config_current_factors[0]},
 	{"current_factor2",				'f', "86.21",			1, 1, (void*) &config_current_factors[1]},

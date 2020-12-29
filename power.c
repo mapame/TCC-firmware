@@ -17,7 +17,6 @@
 #include "ievents.h"
 #include "configuration.h"
 #include "sampling.h"
-#include "flash.h"
 #include "rtc.h"
 
 
@@ -43,12 +42,9 @@ void power_processing_task(void *pvParameters) {
 	raw_adc_data_t raw_adc_data;
 	
 	power_data_t aux_power_data;
-	power_data_flash_t aux_power_data_flash;
 	power_event_t aux_power_event;
-	internal_event_t aux_internal_event;
 	
 	int empty_msgbuf = 0;
-	int flash_error;
 	
 	int raw_adc_data_processed_counter = 0;
 	uint32_t first_sample_usecs = 0;
@@ -301,40 +297,6 @@ void power_processing_task(void *pvParameters) {
 					
 					pevents_count[ch][evt] = 0;
 				}
-			
-			if(!status_server_connected && config_use_flash_storage && (power_data_count >= 60 || power_events_count == POWER_EVENT_BUFFER_SIZE || internal_events_count == IEVENT_BUFFER_SIZE)) {
-				flash_error = 0;
-				
-				pause_sampling();
-				
-				if(power_data_count >= 60)
-					if(!convert_power_data_flash(&aux_power_data_flash))
-						if(flash_add_power_data(&aux_power_data_flash))
-							flash_error++;
-				
-				for(int i = 0; i < power_events_count; i++)
-					if(!get_power_event(&aux_power_event, i)) {
-						if(flash_add_power_event(&aux_power_event)) {
-							flash_error++;
-							break;
-						} else {
-							delete_power_events(1);
-						}
-					}
-				
-				for(int i = 0; i < internal_events_count; i++)
-					if(!get_internal_event(&aux_internal_event, i)) {
-						if(flash_add_internal_event(&aux_internal_event)) {
-							flash_error++;
-							break;
-						} else {
-							delete_internal_events(1);
-						}
-					}
-				
-				if(flash_error < 3)
-					start_sampling();
-			}
 		}
 	}
 }
@@ -384,61 +346,6 @@ int delete_power_data(unsigned int qty) {
 	power_data_count -= qty;
 	
 	xSemaphoreGive(power_data_mutex);
-	
-	return 0;
-}
-
-int convert_power_data_flash(power_data_flash_t *data) {
-	int minute, second;
-	int last_second;
-	int second_counter;
-	
-	float q[2];
-	
-	xSemaphoreTake(power_data_mutex, pdMS_TO_TICKS(500));
-	
-	second_counter = 0;
-	minute = 60;
-	second = -1;
-	
-	while(power_data_count) {
-		if((power_data[power_data_tail].timestamp % 3600) / 60 != minute) {
-			if(second_counter >= 15)
-				break;
-			
-			data->timestamp = power_data[power_data_tail].timestamp - (power_data[power_data_tail].timestamp % 60);
-			
-			second_counter = 0;
-			second = -1;
-			
-			data->active[0] = 0.0;
-			data->active[1] = 0.0;
-			data->reactive[0] = 0.0;
-			data->reactive[1] = 0.0;
-		}
-		
-		last_second = second;
-		second = power_data[power_data_tail].timestamp % 60;
-		minute = (power_data[power_data_tail].timestamp % 3600) / 60;
-		
-		for(int ch = 0; ch < 2; ch++) {
-			data->active[ch] += (power_data[power_data_tail].p[ch] * (float) (second - last_second)) / 3600.0;
-			q[ch] = sqrt(pow((power_data[power_data_tail].vrms[ch] * power_data[power_data_tail].irms[ch]), 2) - pow(power_data[power_data_tail].p[ch], 2));
-			data->reactive[ch] += (q[ch] * (float) (second - last_second)) / 3600.0;
-		}
-		
-		power_data_tail = (power_data_tail + 1) % POWER_DATA_BUFFER_SIZE;
-		power_data_count--;
-		
-		second_counter++;
-	}
-	
-	xSemaphoreGive(power_data_mutex);
-	
-	data->seconds = second_counter;
-	
-	if(second_counter < 15)
-		return -1;
 	
 	return 0;
 }
