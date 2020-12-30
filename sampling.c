@@ -51,6 +51,11 @@ void IRAM ads_ready_handle(uint8_t gpio_num) {
 		return;
 	}
 	
+	if(rtc_time == 0) {
+		status_sampling_running = 0;
+		return;
+	}
+	
 	adc_samples_since_switch++;
 	
 	if(status_sampling_running == 1) {
@@ -125,8 +130,10 @@ void IRAM ads_ready_handle(uint8_t gpio_num) {
 		read_temp_flag = 0;
 	}
 	
-	if(next_sample_usecs_since_time >= RTC_MAX_READ_PERIOD_US)
+	if(next_sample_usecs_since_time >= RTC_MAX_READ_PERIOD_US) {
+		status_sampling_running = 2;
 		return;
+	}
 	
 	if(next_sample_usecs_since_time >= RTC_READ_PERIOD_US) {
 		read_rtc_time();

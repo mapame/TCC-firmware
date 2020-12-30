@@ -19,7 +19,6 @@ i2c_dev_t rtc_dev = {.addr = DS3231_ADDR, .bus = 0};
 SemaphoreHandle_t rtc_mutex = NULL;
 
 uint32_t rtc_time, rtc_time_sysclock_reference;
-uint8_t rtc_oscillator_stopped;
 
 float rtc_temp = 0.0;
 
@@ -37,7 +36,7 @@ int read_rtc_time() {
 		return -1;
 	
 	if(osf) {
-		rtc_oscillator_stopped++;
+		rtc_time = 0;
 		return -2;
 	}
 	

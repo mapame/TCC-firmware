@@ -1,5 +1,4 @@
 extern uint32_t rtc_time, rtc_time_sysclock_reference;
-extern uint8_t rtc_oscillator_stopped;
 
 int init_rtc();
 int read_rtc_time();
