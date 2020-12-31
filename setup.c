@@ -122,7 +122,7 @@ void setup_task(void *pvParameters) {
 				telnet_send_line(client_socket, send_buffer);
 				
 			} else if(!strcmp(receive_buffer, "list")){
-				for(int i = 0; i < CONFIG_NUMBER; i++) {
+				for(int i = 0; i < configuration_table_qty; i++) {
 					configuration_index_name(i, aux);
 					
 					sprintf(send_buffer, "%s = ", aux);

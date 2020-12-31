@@ -28,7 +28,7 @@ typedef struct config_metadata_s {
 	void *variable;
 } config_metadata_t;
 
-const config_metadata_t configuration_table[CONFIG_NUMBER] = {
+const config_metadata_t configuration_table[] = {
 	{"device_id",					's', "NO_ID",			1, 0, (void*) &config_device_id},
 	{"wifi_ap_password",			's', "matawattap",		0, 0, (void*) &config_wifi_ap_password},
 	{"wifi_ssid",					's', "###NOT_SET###",	1, 1, (void*) &config_wifi_ssid},
@@ -42,9 +42,11 @@ const config_metadata_t configuration_table[CONFIG_NUMBER] = {
 	{"voltage_factor2",				'f', "3666.67",			1, 1, (void*) &config_voltage_factors[1]},
 };
 
+const int configuration_table_qty = sizeof(configuration_table) / sizeof(config_metadata_t);
+
 
 int configuration_index_name(unsigned int index, char *buffer) {
-	if(index > (CONFIG_NUMBER - 1))
+	if(index > (configuration_table_qty - 1))
 		return -1;
 	
 	strcpy(buffer, configuration_table[index].name);
@@ -53,7 +55,7 @@ int configuration_index_name(unsigned int index, char *buffer) {
 }
 
 int configuration_index_value(unsigned int index, char *buffer, int external) {
-	if(index > (CONFIG_NUMBER - 1))
+	if(index > (configuration_table_qty - 1))
 		return -1;
 	
 	if(external && !configuration_table[index].ext_r)
@@ -78,7 +80,7 @@ int configuration_read(const char *configuration_name, char *buffer, int externa
 	if(!(configuration_name && buffer))
 		return -1;
 	
-	for(int i = 0; i < CONFIG_NUMBER; i++)
+	for(int i = 0; i < configuration_table_qty; i++)
 		if(!strcmp(configuration_name, configuration_table[i].name)) {
 			if(external && !configuration_table[i].ext_r)
 				return -3;
@@ -108,7 +110,7 @@ int configuration_write(const char *configuration_name, const char *buffer, int 
 	if(!(configuration_name && buffer))
 		return -1;
 	
-	for(int i = 0; i < CONFIG_NUMBER; i++)
+	for(int i = 0; i < configuration_table_qty; i++)
 		if(!strcmp(configuration_name, configuration_table[i].name)) {
 			if(external && !configuration_table[i].ext_w)
 				return -3;
@@ -155,7 +157,7 @@ int configuration_write(const char *configuration_name, const char *buffer, int 
 void load_configuration() {
 	char *value;
 	
-	for(int i = 0; i < CONFIG_NUMBER; i++) {
+	for(int i = 0; i < configuration_table_qty; i++) {
 		value = NULL;
 		sysparam_get_string(configuration_table[i].name, &value);
 		
