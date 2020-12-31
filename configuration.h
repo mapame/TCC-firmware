@@ -13,17 +13,10 @@ extern int config_power_phases;
 
 extern float config_current_factors[2];
 extern float config_voltage_factors[2];
-extern float config_ac_frequency_max;
-extern float config_ac_frequency_min;
-extern float config_ac_voltage_max;
-extern float config_ac_voltage_min;
-extern float config_ac_peak_max;
-extern float config_max_current[2];
 
 
 int configuration_index_name(unsigned int index, char *buffer);
 int configuration_index_value(unsigned int index, char *buffer, int external);
-
 int configuration_read(const char *configuration_name, char *buffer, int external);
 int configuration_write(const char *configuration_name, const char *buffer, int external);
 

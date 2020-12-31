@@ -12,7 +12,7 @@
 #include <ds3231/ds3231.h>
 
 #include "common.h"
-#include "ievents.h"
+#include "events.h"
 
 i2c_dev_t rtc_dev = {.addr = DS3231_ADDR, .bus = 0};
 
@@ -68,7 +68,7 @@ uint32_t get_time() {
 			xSemaphoreGive(rtc_mutex);
 			
 			if(result == -1)
-				add_internal_event(IEVENT_TYPE_I2C_ERROR, 5, rtc_time);
+				add_event(EVENT_TYPE_I2C_ERROR, 5, rtc_time);
 			
 			return 0;
 		}
@@ -113,14 +113,14 @@ int update_rtc(uint32_t new_time) {
 	
 	if(!ds3231_clearOscillatorStopFlag(&rtc_dev)) {
 		xSemaphoreGive(rtc_mutex);
-		add_internal_event(IEVENT_TYPE_I2C_ERROR, 3, rtc_time);
+		add_event(EVENT_TYPE_I2C_ERROR, 3, rtc_time);
 		
 		return -2;
 	}
 	
 	if(ds3231_setTime(&rtc_dev, &new_time_tm)) {
 		xSemaphoreGive(rtc_mutex);
-		add_internal_event(IEVENT_TYPE_I2C_ERROR, 4, rtc_time);
+		add_event(EVENT_TYPE_I2C_ERROR, 4, rtc_time);
 		
 		return -2;
 	}

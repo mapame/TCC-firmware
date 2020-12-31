@@ -18,7 +18,7 @@
 #include "rtc.h"
 #include "sampling.h"
 #include "configuration.h"
-#include "ievents.h"
+#include "events.h"
 
 ads111x_dev_t adc_device[3];
 
@@ -167,7 +167,7 @@ int start_sampling() {
 	read_temp_flag = 0;
 	
 	if(adc_config()) {
-		add_internal_event(IEVENT_TYPE_I2C_ERROR, 1, get_time());
+		add_event(EVENT_TYPE_I2C_ERROR, 1, get_time());
 		return -3;
 	}
 	
@@ -184,7 +184,7 @@ int start_sampling() {
 	ads111x_start_conversion(&adc_device[2]);
 	
 	if(ads111x_get_error_count(&adc_device[0]) || ads111x_get_error_count(&adc_device[1]) || ads111x_get_error_count(&adc_device[2])) {
-		add_internal_event(IEVENT_TYPE_I2C_ERROR, 2, get_time());
+		add_event(EVENT_TYPE_I2C_ERROR, 2, get_time());
 		
 		return -3;
 	}

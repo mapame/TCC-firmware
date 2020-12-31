@@ -18,12 +18,6 @@ int config_power_phases;
 
 float config_current_factors[2];
 float config_voltage_factors[2];
-float config_ac_frequency_max;
-float config_ac_frequency_min;
-float config_ac_voltage_max;
-float config_ac_voltage_min;
-float config_ac_peak_max;
-float config_max_current[2];
 
 typedef struct config_metadata_s {
 	char name[33];
@@ -46,13 +40,6 @@ const config_metadata_t configuration_table[CONFIG_NUMBER] = {
 	{"current_factor2",				'f', "86.21",			1, 1, (void*) &config_current_factors[1]},
 	{"voltage_factor1",				'f', "3666.67",			1, 1, (void*) &config_voltage_factors[0]},
 	{"voltage_factor2",				'f', "3666.67",			1, 1, (void*) &config_voltage_factors[1]},
-	{"ac_frequency_max",			'f', "66.0",			1, 1, (void*) &config_ac_frequency_max},
-	{"ac_frequency_min",			'f', "54.0",			1, 1, (void*) &config_ac_frequency_min},
-	{"ac_voltage_max",				'f', "139.7",			1, 1, (void*) &config_ac_voltage_max},
-	{"ac_voltage_min",				'f', "114.3",			1, 1, (void*) &config_ac_voltage_min},
-	{"ac_voltage_peak_max",			'f', "200.0",			1, 1, (void*) &config_ac_peak_max},
-	{"maximum_current1",			'f', "40.0",			1, 1, (void*) &config_max_current[0]},
-	{"maximum_current2",			'f', "40.0",			1, 1, (void*) &config_max_current[1]},
 };
 
 

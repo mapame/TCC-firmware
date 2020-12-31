@@ -20,7 +20,7 @@
 #include "common.h"
 #include "sampling.h"
 #include "power.h"
-#include "ievents.h"
+#include "events.h"
 #include "communication.h"
 #include "configuration.h"
 #include "rtc.h"
@@ -127,8 +127,7 @@ void network_task(void *pvParameters) {
 			int aux_result;
 			
 			power_data_t aux_power_data;
-			power_event_t aux_power_event;
-			internal_event_t aux_internal_event;
+			event_t aux_event;
 			
 			unsigned int aux_channel, aux_qty;
 			float aux_waveform_buffer[WAVEFORM_MAX_QTY];
@@ -215,7 +214,7 @@ void network_task(void *pvParameters) {
 					strlcpy(received_ota_hash_text, received_parameters[0], 33);
 					break;
 				case OP_QUERY_STATUS:
-					sprintf(response_parameters, "%u\t%u\t%.2f\t%u\t%u\t%u\t%u\t", status_sampling_running, (xTaskGetTickCount() / configTICK_RATE_HZ), get_temp(), get_time(), internal_events_count, power_events_count, power_data_count);
+					sprintf(response_parameters, "%u\t%u\t%.2f\t%u\t%u\t%u\t", status_sampling_running, (xTaskGetTickCount() / configTICK_RATE_HZ), get_temp(), get_time(), event_count, power_data_count);
 					
 					break;
 				case OP_GET_DATA:
@@ -224,7 +223,7 @@ void network_task(void *pvParameters) {
 						break;
 					}
 					
-					if(strcmp(received_parameters[0], "pd") == 0) {
+					if(received_parameters[0][0] == 'P') {
 						if(aux_qty > power_data_count) {
 							response_code = R_ERR_INVALID_PARAMETER;
 							break;
@@ -243,30 +242,16 @@ void network_task(void *pvParameters) {
 							if(send_result < 0)
 								break;
 						}
-					} else if(strcmp(received_parameters[0], "pe") == 0) {
-						if(aux_qty > power_events_count) {
+					} else if(received_parameters[0][0] == 'E') {
+						if(aux_qty > event_count) {
 							response_code = R_ERR_INVALID_PARAMETER;
 							break;
 						}
 						
 						for(int i = 0; i < aux_qty; i++) {
-							get_power_event(&aux_power_event, i);
+							get_event(&aux_event, i);
 							
-							sprintf(response_parameters, "%u\t%u\t%u\t%u\t%.3f\t%.3f\t", aux_power_event.timestamp, aux_power_event.type, aux_power_event.count, aux_power_event.channel, aux_power_event.avg_value, aux_power_event.worst_value);
-							send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, R_SUCESS, response_parameters);
-							if(send_result < 0)
-								break;
-						}
-					} else if(strcmp(received_parameters[0], "ie") == 0) {
-						if(aux_qty > internal_events_count) {
-							response_code = R_ERR_INVALID_PARAMETER;
-							break;
-						}
-						
-						for(int i = 0; i < aux_qty; i++) {
-							get_internal_event(&aux_internal_event, i);
-							
-							sprintf(response_parameters, "%u\t%u\t%u\t%u\t", aux_internal_event.timestamp, aux_internal_event.type, aux_internal_event.count, aux_internal_event.value);
+							sprintf(response_parameters, "%u\t%u\t%u\t%u\t", aux_event.timestamp, aux_event.type, aux_event.count, aux_event.value);
 							send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, R_SUCESS, response_parameters);
 							if(send_result < 0)
 								break;
@@ -283,12 +268,10 @@ void network_task(void *pvParameters) {
 					
 					aux_result = 1;
 					
-					if(strcmp(received_parameters[0], "pd") == 0)
+					if(received_parameters[0][0] == 'P')
 						aux_result = delete_power_data(aux_qty);
-					else if(strcmp(received_parameters[0], "pe") == 0)
-						aux_result = delete_power_events(aux_qty);
-					else if(strcmp(received_parameters[0], "ie") == 0)
-						aux_result = delete_internal_events(aux_qty);
+					else if(received_parameters[0][0] == 'E')
+						aux_result = delete_events(aux_qty);
 					
 					if(aux_result != 0)
 						response_code = R_ERR_INVALID_PARAMETER;
@@ -445,7 +428,7 @@ static int receive_command(int socket_fd, const br_hmac_key_context *hmac_key_ct
 		return COMM_ERR_RECEVING_RESPONSE;
 	
 	if(validate_hmac(hmac_key_ctx, receive_buffer, received_line_len)) { // Protocol error - Invalid MAC
-		add_internal_event(IEVENT_TYPE_INVALID_MAC, 0, get_time());
+		add_event(EVENT_TYPE_INVALID_MAC, 0, get_time());
 		debug("Invalid MAC.\n");
 		return COMM_ERR_INVALID_MAC;
 	}

@@ -18,7 +18,7 @@
 #include "common.h"
 #include "sampling.h"
 #include "power.h"
-#include "ievents.h"
+#include "events.h"
 #include "rtc.h"
 #include "configuration.h"
 #include "communication.h"
@@ -143,7 +143,7 @@ void user_init(void) {
 	
 	vTaskDelay(pdMS_TO_TICKS(100));
 	
-	ievents_init();
+	events_init();
 	
 	debug("Initializing I2C bus.\n");
 	

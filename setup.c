@@ -16,7 +16,6 @@
 #include "common.h"
 #include "configuration.h"
 #include "power.h"
-#include "ievents.h"
 
 static int recv_telnet_line(int socket_fd, char *buf, size_t len) {
 	int num = 0;

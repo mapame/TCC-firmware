@@ -14,7 +14,7 @@
 
 #include "common.h"
 #include "power.h"
-#include "ievents.h"
+#include "events.h"
 #include "configuration.h"
 #include "sampling.h"
 #include "rtc.h"
@@ -23,26 +23,18 @@
 power_data_t power_data[POWER_DATA_BUFFER_SIZE];
 uint16_t power_data_head, power_data_tail, power_data_count;
 
-power_event_t power_events[POWER_EVENT_BUFFER_SIZE];
-uint16_t power_events_head, power_events_tail, power_events_count;
-
 float waveform_buffer[4][WAVEFORM_MAX_QTY];
 uint16_t waveform_buffer_pos;
 
 SemaphoreHandle_t power_data_mutex = NULL;
-SemaphoreHandle_t power_events_mutex = NULL;
 SemaphoreHandle_t waveform_buffer_mutex = NULL;
 
-unsigned int power_event_min_count[POWER_EVENT_TYPE_QTY] = {5, 5, 1, 6, 6, 10};
-
 int add_power_data(const power_data_t *data);
-int add_power_event(const power_event_t *pev);
 
 void power_processing_task(void *pvParameters) {
 	raw_adc_data_t raw_adc_data;
 	
 	power_data_t aux_power_data;
-	power_event_t aux_power_event;
 	
 	int empty_msgbuf = 0;
 	
@@ -50,43 +42,19 @@ void power_processing_task(void *pvParameters) {
 	uint32_t first_sample_usecs = 0;
 	uint32_t first_sample_rtc_time = 0;
 	
-	float v[2];
-	float i[2];
+	float v[2] = {0.0, 0.0};
+	float i[2] = {0.0, 0.0};
 	
 	float vrms_acc[2] = {0.0, 0.0};
 	float irms_acc[2] = {0.0, 0.0};
 	float p_acc[2] = {0.0, 0.0};
 	
-	unsigned int pevents_count[2][POWER_EVENT_TYPE_QTY];
-	float pevents_avg_acc[2][POWER_EVENT_TYPE_QTY];
-	float pevents_worst[2][POWER_EVENT_TYPE_QTY];
-	
-	float last_v[2];
-	
-	int pevent_first_rise[2] = {1, 1};
-	
-	uint32_t pevent_cycle_start_us[2] = {0, 0};
-	
-	float pevent_rms_count[2] = {0, 0};
-	float pevent_vrms_acc[2] = {0.0, 0.0};
-	float pevent_irms_acc[2] = {0.0, 0.0};
-	
-	float pevent_vrms[2];
-	float pevent_irms[2];
-	float pevent_freq[2];
-	
 	power_data_mutex = xSemaphoreCreateMutex();
-	power_events_mutex = xSemaphoreCreateMutex();
 	waveform_buffer_mutex = xSemaphoreCreateMutex();
 	
 	power_data_head = 0;
 	power_data_tail = 0;
 	power_data_count = 0;
-	
-	for(int evt = 0; evt < POWER_EVENT_TYPE_QTY; evt++) {
-		pevents_count[0][evt] = 0;
-		pevents_count[1][evt] = 0;
-	}
 	
 	start_sampling();
 	
@@ -95,7 +63,7 @@ void power_processing_task(void *pvParameters) {
 			if(status_sampling_running && ++empty_msgbuf >= 3) {
 				empty_msgbuf = 0;
 				status_sampling_running = 0;
-				add_internal_event(IEVENT_TYPE_SAMPLING_STOPPED, 0, get_time());
+				add_event(EVENT_TYPE_SAMPLING_STOPPED, 0, get_time());
 			}
 			
 			continue;
@@ -104,7 +72,7 @@ void power_processing_task(void *pvParameters) {
 		empty_msgbuf = 0;
 		
 		if(raw_adc_data_count == RAW_ADC_DATA_BUFFER_SIZE)
-				add_internal_event(IEVENT_TYPE_ADC_BUFFER_FULL, raw_adc_data_count, get_time());
+				add_event(EVENT_TYPE_ADC_BUFFER_FULL, raw_adc_data_count, get_time());
 		
 		raw_adc_data_count--;
 		
@@ -122,9 +90,6 @@ void power_processing_task(void *pvParameters) {
 			first_sample_rtc_time = raw_adc_data.rtc_time;
 			
 			raw_adc_data_processed_counter = 0;
-			
-			pevent_first_rise[0] = 1;
-			pevent_first_rise[1] = 1;
 		}
 		
 		raw_adc_data_processed_counter++;
@@ -151,102 +116,6 @@ void power_processing_task(void *pvParameters) {
 			irms_acc[1] += i[1] * i[1];
 			
 			p_acc[1] += v[1] * i[1];
-		}
-		
-		
-		for(int ch = 0; ch < 2; ch++) {
-			if(fabsf(v[ch]) > config_ac_peak_max) {
-				if(pevents_count[ch][POWER_EVENT_TYPE_VOLTAGE_SPIKE] == 0)
-					pevents_avg_acc[ch][POWER_EVENT_TYPE_VOLTAGE_SPIKE] = fabsf(v[ch]);
-				else
-					pevents_avg_acc[ch][POWER_EVENT_TYPE_VOLTAGE_SPIKE] += fabsf(v[ch]);
-				
-				if(fabsf(v[ch]) > fabsf(pevents_worst[ch][POWER_EVENT_TYPE_VOLTAGE_SPIKE]) || pevents_count[ch][POWER_EVENT_TYPE_VOLTAGE_SPIKE] == 0)
-					pevents_worst[ch][POWER_EVENT_TYPE_VOLTAGE_SPIKE] = v[ch];
-				
-				pevents_count[ch][POWER_EVENT_TYPE_VOLTAGE_SPIKE]++;
-			}
-			
-			if(last_v[ch] < 0 && v[ch] > 0) {
-				if(!pevent_first_rise[ch]) {
-					pevent_freq[ch] = 1000000.0 / (float) (raw_adc_data.usecs_since_time - pevent_cycle_start_us[ch]);
-					pevent_vrms[ch] = sqrtf(pevent_vrms_acc[ch] / (float) pevent_rms_count[ch]);
-					pevent_irms[ch] = sqrtf(pevent_irms_acc[ch] / (float) pevent_rms_count[ch]);
-					
-					if(pevent_freq[ch] > config_ac_frequency_max) {
-						if(pevents_count[ch][POWER_EVENT_TYPE_AC_FREQUENCY_HIGH] == 0)
-							pevents_avg_acc[ch][POWER_EVENT_TYPE_AC_FREQUENCY_HIGH] = pevent_freq[ch];
-						else
-							pevents_avg_acc[ch][POWER_EVENT_TYPE_AC_FREQUENCY_HIGH] += pevent_freq[ch];
-						
-						if(pevent_freq[ch] > pevents_worst[ch][POWER_EVENT_TYPE_AC_FREQUENCY_HIGH] || pevents_count[ch][POWER_EVENT_TYPE_AC_FREQUENCY_HIGH] == 0)
-							pevents_worst[ch][POWER_EVENT_TYPE_AC_FREQUENCY_HIGH] = pevent_freq[ch];
-						
-						pevents_count[ch][POWER_EVENT_TYPE_AC_FREQUENCY_HIGH]++;
-					}
-					
-					if(pevent_freq[ch] < config_ac_frequency_min) {
-						if(pevents_count[ch][POWER_EVENT_TYPE_AC_FREQUENCY_LOW] == 0)
-							pevents_avg_acc[ch][POWER_EVENT_TYPE_AC_FREQUENCY_LOW] = pevent_freq[ch];
-						else
-							pevents_avg_acc[ch][POWER_EVENT_TYPE_AC_FREQUENCY_LOW] += pevent_freq[ch];
-						
-						if(pevent_freq[ch] < pevents_worst[ch][POWER_EVENT_TYPE_AC_FREQUENCY_LOW] || pevents_count[ch][POWER_EVENT_TYPE_AC_FREQUENCY_LOW] == 0)
-							pevents_worst[ch][POWER_EVENT_TYPE_AC_FREQUENCY_LOW] = pevent_freq[ch];
-						
-						pevents_count[ch][POWER_EVENT_TYPE_AC_FREQUENCY_LOW]++;
-					}
-					
-					if(pevent_irms[ch] > config_max_current[ch]) {
-						if(pevents_count[ch][POWER_EVENT_TYPE_OVERCURRENT] == 0)
-							pevents_avg_acc[ch][POWER_EVENT_TYPE_OVERCURRENT] = pevent_irms[ch];
-						else
-							pevents_avg_acc[ch][POWER_EVENT_TYPE_OVERCURRENT] += pevent_irms[ch];
-						
-						if(pevent_irms[ch] > pevents_worst[ch][POWER_EVENT_TYPE_OVERCURRENT] || pevents_count[ch][POWER_EVENT_TYPE_OVERCURRENT] == 0)
-							pevents_worst[ch][POWER_EVENT_TYPE_OVERCURRENT] = pevent_irms[ch];
-						
-						pevents_count[ch][POWER_EVENT_TYPE_OVERCURRENT]++;
-					}
-					
-					if(pevent_vrms[ch] > config_ac_voltage_max) {
-						if(pevents_count[ch][POWER_EVENT_TYPE_VOLTAGE_HIGH] == 0)
-							pevents_avg_acc[ch][POWER_EVENT_TYPE_VOLTAGE_HIGH] = pevent_vrms[ch];
-						else
-							pevents_avg_acc[ch][POWER_EVENT_TYPE_VOLTAGE_HIGH] += pevent_vrms[ch];
-						
-						if(pevent_vrms[ch] > pevents_worst[ch][POWER_EVENT_TYPE_VOLTAGE_HIGH] || pevents_count[ch][POWER_EVENT_TYPE_VOLTAGE_HIGH] == 0)
-							pevents_worst[ch][POWER_EVENT_TYPE_VOLTAGE_HIGH] = pevent_vrms[ch];
-						
-						pevents_count[ch][POWER_EVENT_TYPE_VOLTAGE_HIGH]++;
-					}
-					
-					if(pevent_vrms[ch] < config_ac_voltage_min) {
-						if(pevents_count[ch][POWER_EVENT_TYPE_VOLTAGE_LOW] == 0)
-							pevents_avg_acc[ch][POWER_EVENT_TYPE_VOLTAGE_LOW] = pevent_vrms[ch];
-						else
-							pevents_avg_acc[ch][POWER_EVENT_TYPE_VOLTAGE_LOW] += pevent_vrms[ch];
-						
-						if(pevent_vrms[ch] < pevents_worst[ch][POWER_EVENT_TYPE_VOLTAGE_LOW] || pevents_count[ch][POWER_EVENT_TYPE_VOLTAGE_LOW] == 0)
-							pevents_worst[ch][POWER_EVENT_TYPE_VOLTAGE_LOW] = pevent_vrms[ch];
-						
-						pevents_count[ch][POWER_EVENT_TYPE_VOLTAGE_LOW]++;
-					}
-				}
-				
-				pevent_first_rise[ch] = 0;
-				
-				pevent_vrms_acc[ch] = 0.0;
-				pevent_irms_acc[ch] = 0.0;
-				pevent_rms_count[ch] = 0;
-				pevent_cycle_start_us[ch] = raw_adc_data.usecs_since_time;
-			}
-			
-			pevent_vrms_acc[ch] += v[ch] * v[ch];
-			pevent_irms_acc[ch] += i[ch] * i[ch];
-			pevent_rms_count[ch]++;
-			
-			last_v[ch] = v[ch];
 		}
 		
 		xSemaphoreTake(waveform_buffer_mutex, pdMS_TO_TICKS(200));
@@ -281,22 +150,6 @@ void power_processing_task(void *pvParameters) {
 			p_acc[0] = p_acc[1] = 0.0;
 			
 			raw_adc_data_processed_counter = 0;
-			
-			for(int ch = 0; ch < 2; ch++)
-				for(int evt = 0; evt < POWER_EVENT_TYPE_QTY; evt++) {
-					if(pevents_count[ch][evt] >= power_event_min_count[evt]) {
-						aux_power_event.timestamp = first_sample_rtc_time + first_sample_usecs / 1000000U;
-						aux_power_event.type = evt;
-						aux_power_event.channel = ch + 1;
-						aux_power_event.count = pevents_count[ch][evt];
-						aux_power_event.avg_value = pevents_avg_acc[ch][evt] / (float) pevents_count[ch][evt];
-						aux_power_event.worst_value = pevents_worst[ch][evt];
-						
-						add_power_event(&aux_power_event);
-					}
-					
-					pevents_count[ch][evt] = 0;
-				}
 		}
 	}
 }
@@ -346,60 +199,6 @@ int delete_power_data(unsigned int qty) {
 	power_data_count -= qty;
 	
 	xSemaphoreGive(power_data_mutex);
-	
-	return 0;
-}
-
-int add_power_event(const power_event_t *pev) {
-	xSemaphoreTake(power_events_mutex, pdMS_TO_TICKS(300));
-	
-	if(power_events_count == POWER_EVENT_BUFFER_SIZE) {
-		xSemaphoreGive(power_events_mutex);
-		
-		return -1;
-	}
-	
-	memcpy(&power_events[power_events_head], pev, sizeof(power_event_t));
-	
-	power_events_head = (power_events_head + 1) % POWER_EVENT_BUFFER_SIZE;
-	power_events_count++;
-	
-	if(power_events_count == POWER_EVENT_BUFFER_SIZE)
-		add_internal_event(IEVENT_TYPE_POWER_EVENTS_BUFFER_FULL, power_events_count, get_time());
-	
-	xSemaphoreGive(power_events_mutex);
-	
-	return 0;
-}
-
-int get_power_event(power_event_t *data, unsigned int index) {
-	xSemaphoreTake(power_events_mutex, pdMS_TO_TICKS(300));
-	
-	if(index >= power_events_count) {
-		xSemaphoreGive(power_events_mutex);
-		return -1;
-	}
-	
-	memcpy(data, &power_events[(power_events_tail + index) % POWER_EVENT_BUFFER_SIZE], sizeof(power_event_t));
-	
-	xSemaphoreGive(power_events_mutex);
-	
-	return 0;
-}
-
-int delete_power_events(unsigned int qty) {
-	xSemaphoreTake(power_events_mutex, pdMS_TO_TICKS(500));
-	
-	if(qty > power_events_count) {
-		xSemaphoreGive(power_events_mutex);
-		
-		return -1;
-	}
-	
-	power_events_tail = (power_events_tail + qty) % POWER_EVENT_BUFFER_SIZE;
-	power_events_count -= qty;
-	
-	xSemaphoreGive(power_events_mutex);
 	
 	return 0;
 }
