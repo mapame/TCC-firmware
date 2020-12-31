@@ -214,7 +214,7 @@ void network_task(void *pvParameters) {
 					strlcpy(received_ota_hash_text, received_parameters[0], 33);
 					break;
 				case OP_QUERY_STATUS:
-					sprintf(response_parameters, "%u\t%u\t%.2f\t%u\t%u\t%u\t", status_sampling_running, (xTaskGetTickCount() / configTICK_RATE_HZ), get_temp(), get_time(), event_count, power_data_count);
+					sprintf(response_parameters, "%u\t%u\t%u\t%u\t", status_sampling_running, get_time(), event_count, power_data_count);
 					
 					break;
 				case OP_GET_DATA:
