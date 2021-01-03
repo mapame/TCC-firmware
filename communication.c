@@ -46,7 +46,7 @@ opcode_metadata_t opcode_metadata_list[OPCODE_NUM] = {
 	{"CR", 1},
 	{"RE", 0},
 	{"FU", 1},
-	{"QS", 0},
+	{"QS", 1},
 	{"GD", 2},
 	{"DD", 2},
 	{"GW", 2},
@@ -214,7 +214,10 @@ void network_task(void *pvParameters) {
 					strlcpy(received_ota_hash_text, received_parameters[0], 33);
 					break;
 				case OP_QUERY_STATUS:
-					sprintf(response_parameters, "%u\t%u\t%u\t%u\t", status_sampling_running, get_time(), event_count, power_data_count);
+					if(received_parameters[0][0] == 'A')
+						sprintf(response_parameters, "%u\t%u\t%u\t%u\t", status_sampling_running, get_time(), event_count, power_data_count);
+					else if(received_parameters[0][0] == 'B')
+						sprintf(response_parameters, "%u\t%u\t%.1f\t", (xTaskGetTickCount() / configTICK_RATE_HZ), (unsigned int) xPortGetFreeHeapSize(), get_temp());
 					
 					break;
 				case OP_GET_DATA:
