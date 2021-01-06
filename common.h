@@ -1,4 +1,4 @@
-#define FW_VERSION "37"
+#define FW_VERSION "39"
 
 //#define DEBUG
 
@@ -25,14 +25,10 @@
 
 #define RTC_MAX_READ_PERIOD_US 70U * 60U * 1000000U
 
-#define WAVEFORM_MAX_QTY 100
-
 #define SERVER_PORT 2048
 
 #define MAX_DISCONNECTION_TIME_MS 5000
 #define MIN_DISCONNECTION_TIME_MS 200
-
-#define SECURITY_CHECK_MAC 1
 
 #define WIFI_AP_SSID "matawatt AP"
 

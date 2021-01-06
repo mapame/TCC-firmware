@@ -161,6 +161,6 @@ void user_init(void) {
 	debug("Starting tasks.\n");
 	
 	xTaskCreate(power_processing_task, "power_processing_task", 512, NULL, 3, &power_processing_task_handle);
-	xTaskCreate(network_task, "network_task", 768, NULL, 2, NULL);
+	xTaskCreate(network_task, "network_task", 1024, NULL, 2, NULL);
 	xTaskCreate(blink_task, "blink_task", 256, NULL, 1, &blink_task_handle);
 }

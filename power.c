@@ -23,7 +23,8 @@
 power_data_t power_data[POWER_DATA_BUFFER_SIZE];
 uint16_t power_data_head, power_data_tail, power_data_count;
 
-float waveform_buffer[4][WAVEFORM_MAX_QTY];
+float waveform_buffer_v[2][WAVEFORM_BUFFER_SIZE];
+float waveform_buffer_i[2][WAVEFORM_BUFFER_SIZE];
 uint16_t waveform_buffer_pos;
 
 SemaphoreHandle_t power_data_mutex = NULL;
@@ -120,12 +121,12 @@ void power_processing_task(void *pvParameters) {
 		
 		xSemaphoreTake(waveform_buffer_mutex, pdMS_TO_TICKS(200));
 		
-		waveform_buffer[0][waveform_buffer_pos] = v[0];
-		waveform_buffer[1][waveform_buffer_pos] = v[1];
-		waveform_buffer[2][waveform_buffer_pos] = i[0];
-		waveform_buffer[3][waveform_buffer_pos] = i[1];
+		waveform_buffer_v[0][waveform_buffer_pos] = v[0];
+		waveform_buffer_v[1][waveform_buffer_pos] = v[1];
+		waveform_buffer_i[0][waveform_buffer_pos] = i[0];
+		waveform_buffer_i[1][waveform_buffer_pos] = i[1];
 		
-		waveform_buffer_pos = (waveform_buffer_pos + 1) % WAVEFORM_MAX_QTY;
+		waveform_buffer_pos = (waveform_buffer_pos + 1) % WAVEFORM_BUFFER_SIZE;
 		
 		xSemaphoreGive(waveform_buffer_mutex);
 		
@@ -203,11 +204,21 @@ int delete_power_data(unsigned int qty) {
 	return 0;
 }
 
-void get_waveform(float *buffer, unsigned int channel, unsigned int qty) {
+int get_waveform(float *buffer_v, float *buffer_i, unsigned int phase, unsigned int qty) {
+	if(phase < 1 || phase > config_power_phases)
+		return -1;
+	
+	if(qty > WAVEFORM_BUFFER_SIZE)
+		return -2;
+	
 	xSemaphoreTake(waveform_buffer_mutex, pdMS_TO_TICKS(300));
 	
-	for(int i = 0; i < qty; i++)
-		buffer[i] = waveform_buffer[channel][(waveform_buffer_pos + i) % WAVEFORM_MAX_QTY];
+	for(int i = 0; i < qty; i++) {
+		buffer_v[i] = waveform_buffer_v[phase - 1][(waveform_buffer_pos + i) % WAVEFORM_BUFFER_SIZE];
+		buffer_i[i] = waveform_buffer_i[phase - 1][(waveform_buffer_pos + i) % WAVEFORM_BUFFER_SIZE];
+	}
 	
 	xSemaphoreGive(waveform_buffer_mutex);
+	
+	return 0;
 }

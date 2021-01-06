@@ -129,8 +129,9 @@ void network_task(void *pvParameters) {
 			power_data_t aux_power_data;
 			event_t aux_event;
 			
-			unsigned int aux_channel, aux_qty;
-			float aux_waveform_buffer[WAVEFORM_MAX_QTY];
+			unsigned int aux_phase, aux_qty;
+			float waveform_buffer_v[WAVEFORM_BUFFER_SIZE];
+			float waveform_buffer_i[WAVEFORM_BUFFER_SIZE];
 			
 			unsigned int disconnection_time;
 			
@@ -287,18 +288,21 @@ void network_task(void *pvParameters) {
 					}
 					
 					aux_result = 0;
-					aux_result += sscanf(received_parameters[0], "%u", &aux_channel);
+					aux_result += sscanf(received_parameters[0], "%u", &aux_phase);
 					aux_result += sscanf(received_parameters[1], "%u", &aux_qty);
 					
-					if(aux_result != 2 || aux_qty == 0 || aux_qty > WAVEFORM_MAX_QTY || aux_channel > 6) {
+					if(aux_result != 2 || aux_qty == 0) {
 						response_code = R_ERR_INVALID_PARAMETER;
 						break;
 					}
 					
-					get_waveform(aux_waveform_buffer, aux_channel, aux_qty);
+					if(get_waveform(waveform_buffer_v, waveform_buffer_i, aux_phase, aux_qty) != 0) {
+						response_code = R_ERR_INVALID_PARAMETER;
+						break;
+					}
 					
 					for(int i = 0; i < aux_qty; i++) {
-						sprintf(response_parameters, "%.3f\t", aux_waveform_buffer[i]);
+						sprintf(response_parameters, "%.3f\t%.3f\t", waveform_buffer_v[i], waveform_buffer_i[i]);
 						send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, R_SUCESS, response_parameters);
 						if(send_result < 0)
 							break;
@@ -425,16 +429,22 @@ static int receive_command(int socket_fd, const br_hmac_key_context *hmac_key_ct
 	if(received_line_len <= 0) // Timeout or disconnection
 		return COMM_ERR_RECEVING_RESPONSE;
 	
+	#ifndef COMM_SKIP_CHECK_TIMESTAMP
 	time_now = get_time();
+	#endif
 	
 	if(received_line_len < 35) // Protocol error - Line too small
 		return COMM_ERR_RECEVING_RESPONSE;
 	
+	#ifndef COMM_SKIP_CHECK_MAC
 	if(validate_hmac(hmac_key_ctx, receive_buffer, received_line_len)) { // Protocol error - Invalid MAC
 		add_event(EVENT_TYPE_INVALID_MAC, 0, get_time());
 		debug("Invalid MAC.\n");
 		return COMM_ERR_INVALID_MAC;
 	}
+	#else
+	#warning Command MAC check is disabled
+	#endif
 	
 	if(parse_command(receive_buffer, op, received_timestamp, &received_counter, &str_parameters_ptr))
 		return COMM_ERR_PARSING_COMMAND;
@@ -442,8 +452,12 @@ static int receive_command(int socket_fd, const br_hmac_key_context *hmac_key_ct
 	if(received_counter != counter)
 		return COMM_ERR_INVALID_COUNTER;
 	
+	#ifndef COMM_SKIP_CHECK_TIMESTAMP
 	if(time_now > ((*received_timestamp) + SECURITY_MAX_TIMESTAMP_DIFF_SEC))
 		return COMM_ERR_INVALID_TIMESTAMP;
+	#else
+	#warning Command timestamp check is disabled
+	#endif
 	
 	if(parameters != NULL) {
 		parameter_qty = opcode_metadata_list[(*op)].parameter_qty;
@@ -549,10 +563,8 @@ static int validate_hmac(const br_hmac_key_context *hmac_key_ctx, char *data, si
 	compute_hmac(hmac_key_ctx, computed_mac_text, data, len - 33);
 	
 	//debug("Calculated HMAC: %s\n", computed_mac_text);
-	#if SECURITY_CHECK_MAC
 	if(strcmp(received_mac_text, computed_mac_text)) // Protocol error - Invalid MAC
 		return -2;
-	#endif
 	
 	return 0;
 }
