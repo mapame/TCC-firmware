@@ -64,7 +64,7 @@ void power_processing_task(void *pvParameters) {
 			if(status_sampling_running && ++empty_msgbuf >= 3) {
 				empty_msgbuf = 0;
 				status_sampling_running = 0;
-				add_event(EVENT_TYPE_SAMPLING_STOPPED, 0, get_time());
+				add_event("ADC_BUFFER_EMPTY", get_time());
 			}
 			
 			continue;
@@ -73,7 +73,7 @@ void power_processing_task(void *pvParameters) {
 		empty_msgbuf = 0;
 		
 		if(raw_adc_data_count == RAW_ADC_DATA_BUFFER_SIZE)
-				add_event(EVENT_TYPE_ADC_BUFFER_FULL, raw_adc_data_count, get_time());
+				add_event("ADC_BUFFER_FULL", get_time());
 		
 		raw_adc_data_count--;
 		

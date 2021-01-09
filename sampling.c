@@ -167,7 +167,7 @@ int start_sampling() {
 	read_temp_flag = 0;
 	
 	if(adc_config()) {
-		add_event(EVENT_TYPE_I2C_ERROR, 1, get_time());
+		add_event("I2C_ERROR_ADC", get_time());
 		return -3;
 	}
 	
@@ -184,7 +184,7 @@ int start_sampling() {
 	ads111x_start_conversion(&adc_device[2]);
 	
 	if(ads111x_get_error_count(&adc_device[0]) || ads111x_get_error_count(&adc_device[1]) || ads111x_get_error_count(&adc_device[2])) {
-		add_event(EVENT_TYPE_I2C_ERROR, 2, get_time());
+		add_event("I2C_ERROR_ADC", get_time());
 		
 		return -3;
 	}

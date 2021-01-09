@@ -14,41 +14,25 @@ uint16_t events_head, events_tail, event_count;
 
 SemaphoreHandle_t events_mutex = NULL;
 
-int add_event(int type, int value, uint32_t event_time) {
-	uint16_t last_event_pos;
-	
+int add_event(const char *event_text, uint32_t event_time) {
 	if(!xSemaphoreTake(events_mutex, pdMS_TO_TICKS(500)))
 		return 1;
 	
-	last_event_pos = (events_head == 0) ? (EVENT_BUFFER_SIZE - 1) : (events_head - 1);
-	
 	if(event_count == EVENT_BUFFER_SIZE) {
-		if(events[last_event_pos].type == EVENT_TYPE_EVENTS_BUFFER_FULL)
-			events[last_event_pos].count++;
-		
 		xSemaphoreGive(events_mutex);
 		return 2;
 	}
 	
-	if(event_count && events[last_event_pos].type == type && events[last_event_pos].value == value && events[last_event_pos].timestamp == event_time) {
-		events[last_event_pos].count++;
-		xSemaphoreGive(events_mutex);
-		return 0;
-	}
-	
 	events[events_head].timestamp = event_time;
-	events[events_head].count = 1;
-	events[events_head].type = type;
-	events[events_head].value = value;
+	strncpy(events[events_head].text, event_text, 31);
+	events[events_head].text[31] = '\0';
 	
 	events_head = (events_head + 1) % EVENT_BUFFER_SIZE;
 	event_count++;
 	
 	if(event_count == (EVENT_BUFFER_SIZE - 1)) {
 		events[events_head].timestamp = event_time;
-		events[events_head].count = 1;
-		events[events_head].type = EVENT_TYPE_EVENTS_BUFFER_FULL;
-		events[events_head].value = event_count;
+		strcpy(events[events_head].text, "EVENT_BUFFER_FULL");
 		
 		events_head = (events_head + 1) % EVENT_BUFFER_SIZE;
 		event_count++;

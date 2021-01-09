@@ -255,7 +255,7 @@ void network_task(void *pvParameters) {
 						for(int i = 0; i < aux_qty; i++) {
 							get_event(&aux_event, i);
 							
-							sprintf(response_parameters, "%u\t%u\t%u\t%u\t", aux_event.timestamp, aux_event.type, aux_event.count, aux_event.value);
+							sprintf(response_parameters, "%u\t%s\t", aux_event.timestamp, aux_event.text);
 							send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, R_SUCESS, response_parameters);
 							if(send_result < 0)
 								break;
@@ -438,8 +438,8 @@ static int receive_command(int socket_fd, const br_hmac_key_context *hmac_key_ct
 	
 	#ifndef COMM_SKIP_CHECK_MAC
 	if(validate_hmac(hmac_key_ctx, receive_buffer, received_line_len)) { // Protocol error - Invalid MAC
-		add_event(EVENT_TYPE_INVALID_MAC, 0, get_time());
-		debug("Invalid MAC.\n");
+		add_event("INVALID_MAC_KEY", get_time());
+		debug("Invalid MAC Key.\n");
 		return COMM_ERR_INVALID_MAC;
 	}
 	#else
