@@ -31,8 +31,8 @@ typedef struct config_metadata_s {
 const config_metadata_t configuration_table[] = {
 	{"device_id",					's', "NO_ID",			1, 0, (void*) &config_device_id},
 	{"wifi_ap_password",			's', "matawattap",		0, 0, (void*) &config_wifi_ap_password},
-	{"wifi_ssid",					's', "###NOT_SET###",	1, 1, (void*) &config_wifi_ssid},
-	{"wifi_password",				's', "###NOT_SET###",	0, 1, (void*) &config_wifi_password},
+	{"wifi_ssid",					's', "###NOT_SET###",	1, 0, (void*) &config_wifi_ssid},
+	{"wifi_password",				's', "###NOT_SET###",	0, 0, (void*) &config_wifi_password},
 	{"mac_password",				's', "###NOT_SET###",	0, 0, (void*) &config_mac_password},
 	{"server_ip",					's', "###NOT_SET###",	1, 1, (void*) &config_server_ip},
 	{"power_phases",				'i', "2",				1, 1, (void*) &config_power_phases},
