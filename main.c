@@ -105,9 +105,12 @@ void user_init(void) {
 	
 	load_configuration();
 	
-	if(button > 3 || strlen(config_wifi_ssid) < 1 || strcmp(config_wifi_ssid, "###NOT_SET###") == 0
-		|| strlen(config_wifi_password) < 1 || strcmp(config_wifi_password, "###NOT_SET###") == 0
-		|| strlen(config_mac_password) < 1 || strcmp(config_mac_password, "###NOT_SET###") == 0) {
+	if(button > 3
+		|| strlen(config_device_id) < 1
+		|| strlen(config_wifi_ssid) < 1
+		|| strlen(config_wifi_password) < 1
+		|| strlen(config_mac_password) < 1
+		|| strlen(config_server_ip) < 1) {
 		
 		struct sdk_softap_config ap_config;
 		struct ip_info ap_ip;

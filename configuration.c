@@ -20,7 +20,7 @@ float config_current_factors[2];
 float config_voltage_factors[2];
 
 typedef struct config_metadata_s {
-	char name[33];
+	char name[32];
 	char type;
 	char default_value[CONFIG_STR_SIZE];
 	uint8_t ext_r;
@@ -29,17 +29,18 @@ typedef struct config_metadata_s {
 } config_metadata_t;
 
 const config_metadata_t configuration_table[] = {
-	{"device_id",					's', "NO_ID",			1, 0, (void*) &config_device_id},
-	{"wifi_ap_password",			's', "matawattap",		0, 0, (void*) &config_wifi_ap_password},
-	{"wifi_ssid",					's', "###NOT_SET###",	1, 0, (void*) &config_wifi_ssid},
-	{"wifi_password",				's', "###NOT_SET###",	0, 0, (void*) &config_wifi_password},
-	{"mac_password",				's', "###NOT_SET###",	0, 0, (void*) &config_mac_password},
-	{"server_ip",					's', "###NOT_SET###",	1, 1, (void*) &config_server_ip},
-	{"power_phases",				'i', "2",				1, 1, (void*) &config_power_phases},
-	{"current_factor1",				'f', "86.21",			1, 1, (void*) &config_current_factors[0]},
-	{"current_factor2",				'f', "86.21",			1, 1, (void*) &config_current_factors[1]},
-	{"voltage_factor1",				'f', "3666.67",			1, 1, (void*) &config_voltage_factors[0]},
-	{"voltage_factor2",				'f', "3666.67",			1, 1, (void*) &config_voltage_factors[1]},
+	{"device_id",				's', "",			1, 0, (void*) &config_device_id},
+	{"wifi_ap_password",		's', "matawattap",	0, 0, (void*) &config_wifi_ap_password},
+	{"wifi_ssid",				's', "",			1, 0, (void*) &config_wifi_ssid},
+	{"wifi_password",			's', "",			0, 0, (void*) &config_wifi_password},
+	{"mac_password",			's', "",			0, 0, (void*) &config_mac_password},
+	{"server_ip",				's', "",			1, 1, (void*) &config_server_ip},
+	
+	{"power_phases",			'i', "2",			1, 1, (void*) &config_power_phases},
+	{"current_factor1",			'f', "86.21",		1, 1, (void*) &config_current_factors[0]},
+	{"current_factor2",			'f', "86.21",		1, 1, (void*) &config_current_factors[1]},
+	{"voltage_factor1",			'f', "3666.67",		1, 1, (void*) &config_voltage_factors[0]},
+	{"voltage_factor2",			'f', "3666.67",		1, 1, (void*) &config_voltage_factors[1]},
 };
 
 const int configuration_table_qty = sizeof(configuration_table) / sizeof(config_metadata_t);
