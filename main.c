@@ -25,10 +25,10 @@
 
 TaskHandle_t power_processing_task_handle, blink_task_handle;
 
-uint8_t status_sampling_running;
-uint8_t status_server_connected;
+unsigned int status_sampling_running = 0;
+unsigned int status_server_connected = 0;
 
-void setup_task(void *pvParameters);
+void httpd_task(void *pvParameters);
 
 void set_led_color(int color);
 
@@ -83,6 +83,17 @@ void user_init(void) {
 	
 	vTaskDelay(pdMS_TO_TICKS(500));
 	
+	events_init();
+	
+	debug("Initializing I2C bus.\n");
+	
+	if(i2c_init(I2C_BUS, SCL_PIN, SDA_PIN, I2C_FREQ_500K)) {
+		debug("Failed to initialize i2c bus!\n");
+		return;
+	}
+	
+	init_rtc();
+	
 	button = 0;
 	for(int i = LED_COLOR_RED; i <= LED_COLOR_TEAL; i++) {
 		set_led_color(i);
@@ -130,7 +141,7 @@ void user_init(void) {
 		dhcpserver_start(&dhcp_first_ip, 3);
 		dhcpserver_set_router(&ap_ip.ip);
 		
-		xTaskCreate(&setup_task, "setup_task", 256, NULL, 2, NULL);
+		xTaskCreate(&httpd_task, "httpd_task", 1024, NULL, 2, NULL);
 		
 		return;
 	}
@@ -140,19 +151,6 @@ void user_init(void) {
 	
 	sdk_wifi_set_opmode(STATION_MODE);
 	sdk_wifi_station_set_config(&wifi_config);
-	
-	vTaskDelay(pdMS_TO_TICKS(100));
-	
-	events_init();
-	
-	debug("Initializing I2C bus.\n");
-	
-	if(i2c_init(I2C_BUS, SCL_PIN, SDA_PIN, I2C_FREQ_500K)) {
-		debug("Failed to initialize i2c bus!\n");
-		return;
-	}
-	
-	init_rtc();
 	
 	raw_adc_data_buffer = xMessageBufferCreate(RAW_ADC_DATA_BUFFER_SIZE * (sizeof(raw_adc_data_t) + 4));
 	

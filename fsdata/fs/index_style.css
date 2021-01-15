@@ -1,0 +1,34 @@
+body {
+    color: #777;
+    line-height: 1.6;
+    background-color: #EFEFEF;
+}
+
+h1, h2, h3, h4, h5 {
+	margin-bottom: 0;
+}
+
+#content {
+	max-width: 440px;
+	margin: 0 auto;
+	padding-left: 20px;
+	padding-right: 20px;
+}
+
+#rtc-time-text {
+	margin-bottom: 5px;
+}
+
+#restart-button {
+	margin-top: 25px;
+	color: white;
+	background-color: #DD6611;
+}
+
+input[type="text"] {
+	width: 100%;
+}
+
+.input-group {
+	margin-bottom: 20px;
+}

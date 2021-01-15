@@ -1,4 +1,4 @@
-#define FW_VERSION "41"
+#define FW_VERSION "42"
 
 //#define DEBUG
 
@@ -43,5 +43,5 @@ typedef enum {
 	LED_COLOR_WHITE
 } led_colors_t;
 
-extern uint8_t status_sampling_running;
-extern uint8_t status_server_connected;
+extern unsigned int status_sampling_running;
+extern unsigned int status_server_connected;

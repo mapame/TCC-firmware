@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Configuração Medidor de Energia</title>
+	<link rel="stylesheet" href="pure_min.css">
+	<link rel="stylesheet" href="index_style.css">
+</head>
+<body>
+	<div id="content">
+		<div>
+			<h2>Configurações</h2>
+			<div class="pure-form pure-form-stacked">
+				<fieldset>
+					<div class="input-group">
+						<label for="config-input1">Nome Wi-Fi</label>
+						<input type="text" class="config-inputs" id="config-input1" data-config_name="wifi_ssid" disabled=""/>
+						
+						<label for="config-input2">Senha Wi-Fi</label>
+						<input type="text" class="config-inputs" id="config-input2" data-config_name="wifi_password" disabled=""/>
+						
+						<label for="config-input3">Senha Wi-Fi do medidor (Modo de Configuração)</label>
+						<input type="text" class="config-inputs" id="config-input3" data-config_name="wifi_ap_password" disabled=""/>
+					</div>
+					<div class="input-group">
+						<label for="config-input4">Identificador do medidor</label>
+						<input type="text" class="config-inputs" id="config-input4" data-config_name="device_id" disabled=""/>
+						
+						<label for="config-input5">IP do servidor</label>
+						<input type="text" class="config-inputs" id="config-input5" data-config_name="server_ip" disabled=""/>
+						
+						<label for="config-input6">Chave MAC</label>
+						<input type="text" class="config-inputs" id="config-input6" data-config_name="mac_password" disabled=""/>
+					</div>
+					<div class="input-group">
+						<label for="config-input7">Número de Fases</label>
+						<input type="text" class="config-inputs" id="config-input7" data-config_name="power_phases" disabled=""/>
+					</div>
+					
+					<button id="save-config-button" class="pure-button" onclick="saveConfig()">Salvar Configurações</button>
+				</fieldset>
+			</div>
+		</div>
+		
+		<div>
+			<h4 id="rtc-time-text">--:--:-- --/--/----</h3>
+			<button class="pure-button" onclick="sendRTCTime()">Atualizar Hora/Data</button>
+		</div>
+		
+		<div>
+			<button id="restart-button" class="pure-button button-warning" onclick="restartDevice()">Reiniciar</button>
+		</div>
+	</div>
+	
+	<script src="index_script.js"></script>
+</body>
+</html>
