@@ -45,37 +45,6 @@ const config_metadata_t configuration_table[] = {
 const int configuration_table_qty = sizeof(configuration_table) / sizeof(config_metadata_t);
 
 
-int configuration_index_name(unsigned int index, char *buffer) {
-	if(index > (configuration_table_qty - 1))
-		return -1;
-	
-	strcpy(buffer, configuration_table[index].name);
-	
-	return 0;
-}
-
-int configuration_index_value(unsigned int index, char *buffer, int external) {
-	if(index > (configuration_table_qty - 1))
-		return -1;
-	
-	if(external && !configuration_table[index].ext_r)
-		return -3;
-	
-	switch(configuration_table[index].type) {
-		case 's':
-			strlcpy(buffer, (char*) configuration_table[index].variable, CONFIG_STR_SIZE);
-			break;
-		case 'i':
-			sprintf(buffer, "%d", *((int*) configuration_table[index].variable));
-			break;
-		case 'f':
-			sprintf(buffer, "%f", *((float*) configuration_table[index].variable));
-			break;
-	}
-	
-	return 0;
-}
-
 int configuration_read(const char *configuration_name, char *buffer, int external) {
 	if(!(configuration_name && buffer))
 		return -1;
