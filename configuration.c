@@ -7,7 +7,6 @@
 #include "common.h"
 #include "configuration.h"
 
-char config_device_id[CONFIG_STR_SIZE];
 char config_wifi_ap_password[CONFIG_STR_SIZE];
 char config_wifi_ssid[CONFIG_STR_SIZE];
 char config_wifi_password[CONFIG_STR_SIZE];
@@ -29,7 +28,6 @@ typedef struct config_metadata_s {
 } config_metadata_t;
 
 const config_metadata_t configuration_table[] = {
-	{"device_id",				's', "",			1, 0, (void*) &config_device_id},
 	{"wifi_ap_password",		's', "matawattap",	0, 0, (void*) &config_wifi_ap_password},
 	{"wifi_ssid",				's', "",			1, 0, (void*) &config_wifi_ssid},
 	{"wifi_password",			's', "",			0, 0, (void*) &config_wifi_password},

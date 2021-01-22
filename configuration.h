@@ -2,7 +2,6 @@
 
 extern const int configuration_table_qty;
 
-extern char config_device_id[CONFIG_STR_SIZE];
 extern char config_wifi_ap_password[CONFIG_STR_SIZE];
 extern char config_wifi_ssid[CONFIG_STR_SIZE];
 extern char config_wifi_password[CONFIG_STR_SIZE];

@@ -106,7 +106,6 @@ void user_init(void) {
 	load_configuration();
 	
 	if(button > 3
-		|| strlen(config_device_id) < 1
 		|| strlen(config_wifi_ssid) < 1
 		|| strlen(config_wifi_password) < 1
 		|| strlen(config_mac_password) < 1
