@@ -19,7 +19,7 @@ typedef struct raw_adc_data_s {
 } raw_adc_data_t;
 
 extern MessageBufferHandle_t raw_adc_data_buffer;
-extern uint16_t raw_adc_data_count;
+extern volatile uint16_t raw_adc_data_count;
 
 void IRAM ads_ready_handle(uint8_t gpio_num);
 int start_sampling();

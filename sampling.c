@@ -39,7 +39,7 @@ int16_t raw_adc_history_buffer[2][RAW_ADC_HISTORY_BUFFER_SIZE];
 int raw_adc_history_buffer_pos;
 
 MessageBufferHandle_t raw_adc_data_buffer = NULL;
-uint16_t raw_adc_data_count = 0;
+volatile uint16_t raw_adc_data_count = 0;
 
 void IRAM ads_ready_handle(uint8_t gpio_num) {
 	uint32_t sysclock_actual_value;

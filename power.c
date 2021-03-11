@@ -82,6 +82,7 @@ void power_processing_task(void *pvParameters) {
 			first_sample_rtc_time = raw_adc_data.rtc_time;
 		}
 		
+		// Se a referencia de tempo foi atualizada, recomeça o calculo
 		if(first_sample_rtc_time != raw_adc_data.rtc_time) {
 			vrms_acc[0] = vrms_acc[1] = 0.0;
 			irms_acc[0] = irms_acc[1] = 0.0;

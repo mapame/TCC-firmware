@@ -1,4 +1,5 @@
-extern uint32_t rtc_time, rtc_time_sysclock_reference;
+extern volatile uint32_t rtc_time;
+extern volatile uint32_t rtc_time_sysclock_reference;
 
 int init_rtc();
 int read_rtc_time();

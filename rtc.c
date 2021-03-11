@@ -18,7 +18,8 @@ i2c_dev_t rtc_dev = {.addr = DS3231_ADDR, .bus = 0};
 
 SemaphoreHandle_t rtc_mutex = NULL;
 
-uint32_t rtc_time, rtc_time_sysclock_reference;
+volatile uint32_t rtc_time;
+volatile uint32_t rtc_time_sysclock_reference;
 
 float rtc_temp = 0.0;
 
