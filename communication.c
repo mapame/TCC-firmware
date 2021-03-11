@@ -236,11 +236,11 @@ void network_task(void *pvParameters) {
 						for(int i = 0; i < aux_qty; i++) {
 							get_power_data(&aux_power_data, i);
 							
-							sprintf(response_parameters, "%u\t%u\t%u\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t", aux_power_data.timestamp,
-																																aux_power_data.samples, aux_power_data.duration_usec,
-																																aux_power_data.vrms[0], aux_power_data.vrms[1], 0.0,
-																																aux_power_data.irms[0], aux_power_data.irms[1], 0.0,
-																																aux_power_data.p[0], aux_power_data.p[1], 0.0);
+							sprintf(response_parameters, "%u\t%u\t%u\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t", aux_power_data.timestamp,
+																												aux_power_data.samples, aux_power_data.duration_usec,
+																												aux_power_data.vrms[0], aux_power_data.vrms[1],
+																												aux_power_data.irms[0], aux_power_data.irms[1],
+																												aux_power_data.p[0], aux_power_data.p[1]);
 							
 							send_result = send_response(socket_fd, &hmac_key_ctx, received_opcode, received_timestamp, command_counter, R_SUCESS, response_parameters);
 							if(send_result < 0)
