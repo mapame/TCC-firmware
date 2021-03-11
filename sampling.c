@@ -86,8 +86,7 @@ void IRAM ads_ready_handle(uint8_t gpio_num) {
 	if(config_power_phases == 2)
 		raw_adc_data.data[3] = ads111x_get_value(&adc_device[2]);
 	
-	if(ads111x_get_error_count(&adc_device[0]) || ads111x_get_error_count(&adc_device[1]) || ads111x_get_error_count(&adc_device[2]))
-		return;
+	raw_adc_data.errors = ads111x_get_error_count(&adc_device[0]) + ads111x_get_error_count(&adc_device[1]) + ads111x_get_error_count(&adc_device[2]);
 	
 	if(status_sampling_running == 2)
 		status_sampling_running = 0;
@@ -167,7 +166,7 @@ int start_sampling() {
 	read_temp_flag = 0;
 	
 	if(adc_config()) {
-		add_event("I2C_ERROR_ADC", get_time());
+		add_event("I2C_ERROR_ADC_CONFIG", get_time());
 		return -3;
 	}
 	
@@ -184,7 +183,7 @@ int start_sampling() {
 	ads111x_start_conversion(&adc_device[2]);
 	
 	if(ads111x_get_error_count(&adc_device[0]) || ads111x_get_error_count(&adc_device[1]) || ads111x_get_error_count(&adc_device[2])) {
-		add_event("I2C_ERROR_ADC", get_time());
+		add_event("I2C_ERROR_ADC_START", get_time());
 		
 		return -3;
 	}

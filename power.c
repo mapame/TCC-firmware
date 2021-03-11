@@ -43,6 +43,8 @@ void power_processing_task(void *pvParameters) {
 	uint32_t first_sample_usecs = 0;
 	uint32_t first_sample_rtc_time = 0;
 	
+	uint32_t last_timestamp = 0;
+	
 	float v[2] = {0.0, 0.0};
 	float i[2] = {0.0, 0.0};
 	
@@ -73,10 +75,12 @@ void power_processing_task(void *pvParameters) {
 		empty_msgbuf = 0;
 		
 		if(raw_adc_data_count == RAW_ADC_DATA_BUFFER_SIZE)
-				add_event("ADC_BUFFER_FULL", get_time());
+			add_event("ADC_BUFFER_FULL", get_time());
 		
 		raw_adc_data_count--;
 		
+		if(raw_adc_data.errors)
+			add_event("I2C_ERROR_ADC_SAMPLING", get_time());
 		if(raw_adc_data_processed_counter == 0) {
 			first_sample_usecs = raw_adc_data.usecs_since_time;
 			first_sample_rtc_time = raw_adc_data.rtc_time;
@@ -147,9 +151,12 @@ void power_processing_task(void *pvParameters) {
 			
 			add_power_data(&aux_power_data);
 			
+			if(last_timestamp && (aux_power_data.timestamp - last_timestamp) > 1)
+				add_event("POWER_DATA_TIME_GAP", aux_power_data.timestamp);
 			vrms_acc[0] = vrms_acc[1] = 0.0;
 			irms_acc[0] = irms_acc[1] = 0.0;
 			p_acc[0] = p_acc[1] = 0.0;
+			last_timestamp = aux_power_data.timestamp;
 			
 			raw_adc_data_processed_counter = 0;
 		}

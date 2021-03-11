@@ -429,16 +429,14 @@ static int receive_command(int socket_fd, const br_hmac_key_context *hmac_key_ct
 	if(received_line_len <= 0) // Timeout or disconnection
 		return COMM_ERR_RECEVING_RESPONSE;
 	
-	#ifndef COMM_SKIP_CHECK_TIMESTAMP
 	time_now = get_time();
-	#endif
 	
 	if(received_line_len < 35) // Protocol error - Line too small
 		return COMM_ERR_RECEVING_RESPONSE;
 	
 	#ifndef COMM_SKIP_CHECK_MAC
 	if(validate_hmac(hmac_key_ctx, receive_buffer, received_line_len)) { // Protocol error - Invalid MAC
-		add_event("INVALID_MAC_KEY", get_time());
+		add_event("COMM_WRONG_MAC_KEY", time_now);
 		debug("Invalid MAC Key.\n");
 		return COMM_ERR_INVALID_MAC;
 	}
@@ -449,12 +447,16 @@ static int receive_command(int socket_fd, const br_hmac_key_context *hmac_key_ct
 	if(parse_command(receive_buffer, op, received_timestamp, &received_counter, &str_parameters_ptr))
 		return COMM_ERR_PARSING_COMMAND;
 	
-	if(received_counter != counter)
+	if(received_counter != counter) {
+		add_event("COMM_WRONG_COUNTER", time_now);
 		return COMM_ERR_INVALID_COUNTER;
+	}
 	
 	#ifndef COMM_SKIP_CHECK_TIMESTAMP
-	if(time_now > ((*received_timestamp) + SECURITY_MAX_TIMESTAMP_DIFF_SEC))
+	if(time_now > ((*received_timestamp) + SECURITY_MAX_TIMESTAMP_DIFF_SEC)) {
+		add_event("COMM_WRONG_TIMESTAMP", time_now);
 		return COMM_ERR_INVALID_TIMESTAMP;
+	}
 	#else
 	#warning Command timestamp check is disabled
 	#endif
