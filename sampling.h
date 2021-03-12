@@ -13,8 +13,8 @@ extern float adc_volt_scale[3];
 // adc2: i2(3)
 
 typedef struct raw_adc_data_s {
-	uint32_t rtc_time;
-	uint32_t usecs_since_time;
+	uint32_t timestamp;
+	uint32_t duration;
 	uint32_t errors;
 	int16_t data[4];
 } raw_adc_data_t;

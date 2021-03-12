@@ -40,10 +40,12 @@ void power_processing_task(void *pvParameters) {
 	int empty_msgbuf = 0;
 	
 	int raw_adc_data_processed_counter = 0;
-	uint32_t first_sample_usecs = 0;
-	uint32_t first_sample_rtc_time = 0;
+	
+	uint32_t first_sample_timestamp = 0;
 	
 	uint32_t last_timestamp = 0;
+	
+	uint32_t total_duration = 0;
 	
 	float v[2] = {0.0, 0.0};
 	float i[2] = {0.0, 0.0};
@@ -81,48 +83,7 @@ void power_processing_task(void *pvParameters) {
 		
 		if(raw_adc_data.errors)
 			add_event("I2C_ERROR_ADC_SAMPLING", get_time());
-		if(raw_adc_data_processed_counter == 0) {
-			first_sample_usecs = raw_adc_data.usecs_since_time;
-			first_sample_rtc_time = raw_adc_data.rtc_time;
-		}
 		
-		// Se a referencia de tempo foi atualizada, recomeça o calculo
-		if(first_sample_rtc_time != raw_adc_data.rtc_time) {
-			vrms_acc[0] = vrms_acc[1] = 0.0;
-			irms_acc[0] = irms_acc[1] = 0.0;
-			p_acc[0] = p_acc[1] = 0.0;
-			
-			first_sample_usecs = raw_adc_data.usecs_since_time;
-			first_sample_rtc_time = raw_adc_data.rtc_time;
-			
-			raw_adc_data_processed_counter = 0;
-		}
-		
-		raw_adc_data_processed_counter++;
-		
-		v[0] = (adc_volt_scale[0] * (float)raw_adc_data.data[0]) * config_voltage_factors[0];
-		
-		vrms_acc[0] += v[0] * v[0];
-		
-		if(config_power_phases == 2) {
-			v[1] = (adc_volt_scale[0] * (float)raw_adc_data.data[1]) * config_voltage_factors[1];
-			
-			vrms_acc[1] += v[1] * v[1];
-		}
-		
-		i[0] = (adc_volt_scale[1] * (float)raw_adc_data.data[2]) * config_current_factors[0];
-		
-		irms_acc[0] += i[0] * i[0];
-		
-		p_acc[0] += v[0] * i[0];
-		
-		if(config_power_phases == 2) {
-			i[1] = (adc_volt_scale[2] * (float)raw_adc_data.data[3]) * config_current_factors[1];
-			
-			irms_acc[1] += i[1] * i[1];
-			
-			p_acc[1] += v[1] * i[1];
-		}
 		
 		xSemaphoreTake(waveform_buffer_mutex, pdMS_TO_TICKS(200));
 		
@@ -135,9 +96,54 @@ void power_processing_task(void *pvParameters) {
 		
 		xSemaphoreGive(waveform_buffer_mutex);
 		
-		if((raw_adc_data.usecs_since_time - first_sample_usecs) >= 1000000) {
-			aux_power_data.timestamp = first_sample_rtc_time + first_sample_usecs / 1000000U;
-			aux_power_data.duration_usec = raw_adc_data.usecs_since_time - first_sample_usecs;
+		
+		if(raw_adc_data.timestamp < first_sample_timestamp)
+			raw_adc_data_processed_counter = 0;
+		
+		if(raw_adc_data_processed_counter == 0) {
+			first_sample_timestamp = raw_adc_data.timestamp;
+			
+			total_duration = 0;
+			
+			vrms_acc[0] = vrms_acc[1] = 0.0;
+			irms_acc[0] = irms_acc[1] = 0.0;
+			p_acc[0] = p_acc[1] = 0.0;
+		}
+		
+		total_duration += raw_adc_data.duration;
+		
+		if(total_duration < (1000000U + 2000U) && raw_adc_data.timestamp == first_sample_timestamp) {
+			
+			v[0] = (adc_volt_scale[0] * (float)raw_adc_data.data[0]) * config_voltage_factors[0];
+			
+			vrms_acc[0] += v[0] * v[0];
+			
+			if(config_power_phases == 2) {
+				v[1] = (adc_volt_scale[0] * (float)raw_adc_data.data[1]) * config_voltage_factors[1];
+				
+				vrms_acc[1] += v[1] * v[1];
+			}
+			
+			i[0] = (adc_volt_scale[1] * (float)raw_adc_data.data[2]) * config_current_factors[0];
+			
+			irms_acc[0] += i[0] * i[0];
+			
+			p_acc[0] += v[0] * i[0];
+			
+			if(config_power_phases == 2) {
+				i[1] = (adc_volt_scale[2] * (float)raw_adc_data.data[3]) * config_current_factors[1];
+				
+				irms_acc[1] += i[1] * i[1];
+				
+				p_acc[1] += v[1] * i[1];
+			}
+			
+			raw_adc_data_processed_counter++;
+		}
+		
+		if(raw_adc_data.timestamp != first_sample_timestamp) {
+			aux_power_data.timestamp = first_sample_timestamp;
+			aux_power_data.duration_usec = total_duration;
 			aux_power_data.samples = raw_adc_data_processed_counter;
 			
 			aux_power_data.vrms[0] = sqrtf(vrms_acc[0] / (float) raw_adc_data_processed_counter);
@@ -153,9 +159,7 @@ void power_processing_task(void *pvParameters) {
 			
 			if(last_timestamp && (aux_power_data.timestamp - last_timestamp) > 1)
 				add_event("POWER_DATA_TIME_GAP", aux_power_data.timestamp);
-			vrms_acc[0] = vrms_acc[1] = 0.0;
-			irms_acc[0] = irms_acc[1] = 0.0;
-			p_acc[0] = p_acc[1] = 0.0;
+			
 			last_timestamp = aux_power_data.timestamp;
 			
 			raw_adc_data_processed_counter = 0;

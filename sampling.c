@@ -20,31 +20,33 @@
 #include "configuration.h"
 #include "events.h"
 
-ads111x_dev_t adc_device[3];
+static ads111x_dev_t adc_device[3];
 
 float adc_volt_scale[3];
 
-int adc_last_switch_pos;
-uint8_t adc_actual_channel, adc_next_channel;
+static raw_adc_data_t raw_adc_data;
 
-uint16_t adc_discard_cycles;
-uint16_t adc_ac_rise;
-uint16_t adc_samples_since_switch;
+static int adc_last_switch_pos;
+static uint8_t adc_actual_channel, adc_next_channel;
 
-uint32_t next_sample_rtc_time;
-uint32_t next_sample_usecs_since_time;
-uint8_t read_temp_flag;
+static uint16_t adc_discard_cycles;
+static uint16_t adc_ac_rise;
+static uint16_t adc_samples_since_switch;
 
-int16_t raw_adc_history_buffer[2][RAW_ADC_HISTORY_BUFFER_SIZE];
-int raw_adc_history_buffer_pos;
+static uint32_t usecs_since_rtc_time;
+
+static uint32_t sysclock_now;
+static uint32_t sysclock_last_sample;
+
+static uint8_t read_temp_flag;
+
+static int16_t raw_adc_history_buffer[2][RAW_ADC_HISTORY_BUFFER_SIZE];
+static int raw_adc_history_buffer_pos;
 
 MessageBufferHandle_t raw_adc_data_buffer = NULL;
 volatile uint16_t raw_adc_data_count = 0;
 
 void IRAM ads_ready_handle(uint8_t gpio_num) {
-	uint32_t sysclock_actual_value;
-	raw_adc_data_t raw_adc_data;
-	
 	if(xMessageBufferIsFull(raw_adc_data_buffer)) { // Stop sampling on buffer full error
 		status_sampling_running = 0;
 		debug("Raw buffer full!\n");
@@ -79,7 +81,7 @@ void IRAM ads_ready_handle(uint8_t gpio_num) {
 			ads111x_start_conversion(&adc_device[2]);
 	}
 	
-	sysclock_actual_value = sdk_system_get_time();
+	sysclock_now = sdk_system_get_time();
 	
 	raw_adc_history_buffer[(adc_actual_channel == 0) ? 0 : 1][raw_adc_history_buffer_pos] = raw_adc_data.data[(adc_actual_channel == 0) ? 0 : 1] = ads111x_get_value(&adc_device[0]);
 	raw_adc_data.data[2] = ads111x_get_value(&adc_device[1]);
@@ -114,27 +116,31 @@ void IRAM ads_ready_handle(uint8_t gpio_num) {
 	
 	raw_adc_history_buffer_pos = (raw_adc_history_buffer_pos + 1) % RAW_ADC_HISTORY_BUFFER_SIZE;
 	
-	raw_adc_data.rtc_time = next_sample_rtc_time;
-	raw_adc_data.usecs_since_time = next_sample_usecs_since_time;
-	
-	next_sample_rtc_time = rtc_time;
-	
-	if(sysclock_actual_value < rtc_time_sysclock_reference)
-		next_sample_usecs_since_time = (((uint32_t)0xFFFFFFFF) - rtc_time_sysclock_reference) + sysclock_actual_value + ((uint32_t)1);
+	if(sysclock_now < rtc_time_sysclock_reference)
+		usecs_since_rtc_time = (((uint32_t)0xFFFFFFFF) - rtc_time_sysclock_reference) + sysclock_now + ((uint32_t)1);
 	else
-		next_sample_usecs_since_time = sysclock_actual_value - rtc_time_sysclock_reference;
+		usecs_since_rtc_time = sysclock_now - rtc_time_sysclock_reference;
+	
+	raw_adc_data.timestamp = rtc_time + usecs_since_rtc_time / 1000000U;
+	
+	if(sysclock_now < sysclock_last_sample)
+		raw_adc_data.duration = (((uint32_t)0xFFFFFFFF) - sysclock_last_sample) + sysclock_now + ((uint32_t)1);
+	else
+		raw_adc_data.duration = sysclock_now - sysclock_last_sample;
+	
+	sysclock_last_sample = sysclock_now;
+	
+	if(usecs_since_rtc_time >= RTC_MAX_READ_PERIOD_US) {
+		status_sampling_running = 2;
+		return;
+	}
 	
 	if(read_temp_flag) {
 		read_rtc_temp();
 		read_temp_flag = 0;
 	}
 	
-	if(next_sample_usecs_since_time >= RTC_MAX_READ_PERIOD_US) {
-		status_sampling_running = 2;
-		return;
-	}
-	
-	if(next_sample_usecs_since_time >= RTC_READ_PERIOD_US) {
+	if(usecs_since_rtc_time >= RTC_READ_PERIOD_US) {
 		read_rtc_time();
 		read_temp_flag = 1;
 	}
@@ -175,8 +181,7 @@ int start_sampling() {
 	if(get_time() == 0)
 		return -4;
 	
-	next_sample_rtc_time = rtc_time;
-	next_sample_usecs_since_time = 0;
+	sysclock_last_sample = sdk_system_get_time();
 	
 	ads111x_start_conversion(&adc_device[0]);
 	ads111x_start_conversion(&adc_device[1]);
