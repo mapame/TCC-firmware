@@ -49,7 +49,6 @@ volatile uint16_t raw_adc_data_count = 0;
 void IRAM ads_ready_handle(uint8_t gpio_num) {
 	if(xMessageBufferIsFull(raw_adc_data_buffer)) { // Stop sampling on buffer full error
 		status_sampling_running = 0;
-		debug("Raw buffer full!\n");
 		return;
 	}
 	
