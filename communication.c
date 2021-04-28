@@ -79,6 +79,9 @@ void network_task(void *pvParameters) {
 	
 	while(true) {
 		int last_errno = 0;
+		
+		vTaskDelay(pdMS_TO_TICKS(500));
+		
 		while(true) {
 			socket_fd = socket(PF_INET, SOCK_STREAM, 0);
 			
