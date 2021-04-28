@@ -45,6 +45,7 @@ opcode_metadata_t opcode_metadata_list[OPCODE_NUM] = {
 	{"CW", 2},
 	{"CR", 1},
 	{"RE", 0},
+	{"SR", 1},
 	{"FU", 1},
 	{"QS", 1},
 	{"GD", 2},
@@ -125,6 +126,7 @@ void network_task(void *pvParameters) {
 		while (protocol_started >= 0) {
 			int received_opcode;
 			uint32_t received_timestamp;
+			uint32_t aux_timestamp;
 			char received_parameters[PARAM_MAX_QTY][PARAM_STR_SIZE];
 			
 			int aux_result;
@@ -165,17 +167,12 @@ void network_task(void *pvParameters) {
 						break;
 					}
 					
-					if(get_time() == 0 && !status_sampling_running)
-						update_rtc(received_timestamp);
-					
 					protocol_started = 1;
 					sprintf(response_parameters, "%s\t", FW_VERSION);
 					break;
 				case OP_SAMPLING_START:
-					if(!status_sampling_running) {
-						update_rtc(received_timestamp);
+					if(!status_sampling_running)
 						start_sampling();
-					}
 					
 					break;
 				case OP_SAMPLING_PAUSE:
@@ -203,6 +200,19 @@ void network_task(void *pvParameters) {
 					
 					break;
 				case OP_RESTART:
+					break;
+				case OP_SET_RTC:
+					if(status_sampling_running) {
+						response_code = R_ERR_SAMPLING_RUNNING;
+						break;
+					}
+					
+					if(sscanf(received_parameters[0], "%u", &aux_timestamp) != 1) {
+						response_code = R_ERR_INVALID_PARAMETER;
+						break;
+					}
+					
+					update_rtc(aux_timestamp);
 					break;
 				case OP_FW_UPDATE:
 					if(status_sampling_running) {
