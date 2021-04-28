@@ -65,7 +65,9 @@ void power_processing_task(void *pvParameters) {
 	
 	while(true) {
 		if(xMessageBufferReceive(raw_adc_data_buffer, (void*) &raw_adc_data, sizeof(raw_adc_data_t), pdMS_TO_TICKS(200)) == 0) {
-			if(status_sampling_running && ++empty_msgbuf >= 3) {
+			if(status_sampling_running == 0) {
+				last_timestamp = 0;
+			} else if(++empty_msgbuf >= 3) {
 				empty_msgbuf = 0;
 				status_sampling_running = 0;
 				add_event("ADC_BUFFER_EMPTY", get_time());
