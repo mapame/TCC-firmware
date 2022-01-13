@@ -13,7 +13,7 @@ typedef struct power_data_s {
 
 extern uint16_t power_data_count;
 
-void power_processing_task(void *pvParameters);
+void power_calculation_task(void *pvParameters);
 int get_power_data(power_data_t *data, unsigned int index);
 int delete_power_data(unsigned int qty);
 int get_waveform(float *buffer_v, float *buffer_i, unsigned int phase, unsigned int qty);

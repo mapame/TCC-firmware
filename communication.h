@@ -40,4 +40,4 @@ typedef enum {
 	R_ERR_INVALID_PARAMETER
 } protocol_errors_t;
 
-void network_task(void *pvParameters);
+void communication_task(void *pvParameters);

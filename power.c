@@ -32,7 +32,7 @@ SemaphoreHandle_t waveform_buffer_mutex = NULL;
 
 int add_power_data(const power_data_t *data);
 
-void power_processing_task(void *pvParameters) {
+void power_calculation_task(void *pvParameters) {
 	raw_adc_data_t raw_adc_data;
 	
 	power_data_t aux_power_data;

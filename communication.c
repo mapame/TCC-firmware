@@ -26,7 +26,7 @@
 #include "rtc.h"
 #include "ota.h"
 
-extern TaskHandle_t power_processing_task_handle, blink_task_handle;
+extern TaskHandle_t power_calculation_task_handle, status_led_task_handle;
 
 static int recv_command_line(int s, char *buf, size_t len);
 static int convert_opcode(char *buf);
@@ -56,7 +56,7 @@ opcode_metadata_t opcode_metadata_list[OPCODE_NUM] = {
 
 char received_ota_hash_text[33];
 
-void network_task(void *pvParameters) {
+void communication_task(void *pvParameters) {
 	int socket_fd;
 	struct sockaddr_in server_addr;
 	const struct timeval socket_send_timeout_value = {.tv_sec = 2, .tv_usec = 0};
@@ -364,8 +364,8 @@ void network_task(void *pvParameters) {
 					sdk_system_restart();
 					break;
 				case OP_FW_UPDATE:
-					vTaskDelete(power_processing_task_handle);
-					vTaskDelete(blink_task_handle);
+					vTaskDelete(power_calculation_task_handle);
+					vTaskDelete(status_led_task_handle);
 					vTaskDelay(pdMS_TO_TICKS(500));
 					debug("Starting OTA task.\n");
 					if(xTaskCreate(ota_task, "ota_task", 1280, (void*) &received_ota_hash_text, 4, NULL) != pdPASS) {

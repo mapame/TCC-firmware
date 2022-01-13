@@ -23,7 +23,7 @@
 #include "configuration.h"
 #include "communication.h"
 
-TaskHandle_t power_processing_task_handle, blink_task_handle;
+TaskHandle_t power_calculation_task_handle, status_led_task_handle;
 
 unsigned int status_sampling_running = 0;
 unsigned int status_server_connected = 0;
@@ -32,7 +32,7 @@ void httpd_task(void *pvParameters);
 
 void set_led_color(int color);
 
-void IRAM blink_task(void *pvParameters) {
+void IRAM status_led_task(void *pvParameters) {
 	int cycle = 0;
 	while(1){
 		if(cycle) {
@@ -160,7 +160,7 @@ void user_init(void) {
 	
 	debug("Starting tasks.\n");
 	
-	xTaskCreate(power_processing_task, "power_processing_task", 512, NULL, 3, &power_processing_task_handle);
-	xTaskCreate(network_task, "network_task", 1024, NULL, 2, NULL);
-	xTaskCreate(blink_task, "blink_task", 256, NULL, 1, &blink_task_handle);
+	xTaskCreate(power_calculation_task, "power_calculation_task", 512, NULL, 3, &power_calculation_task_handle);
+	xTaskCreate(communication_task, "communication_task", 1024, NULL, 2, NULL);
+	xTaskCreate(status_led_task, "status_led_task", 256, NULL, 1, &status_led_task_handle);
 }
