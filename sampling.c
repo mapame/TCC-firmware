@@ -31,7 +31,6 @@ static uint8_t adc_actual_channel, adc_next_channel;
 
 static uint16_t adc_discard_cycles;
 static uint16_t adc_ac_rise;
-static uint16_t adc_samples_since_switch;
 
 static uint32_t usecs_since_rtc_time;
 
@@ -57,11 +56,8 @@ void IRAM ads_ready_handle(uint8_t gpio_num) {
 		return;
 	}
 	
-	adc_samples_since_switch++;
-	
 	if(status_sampling_running == 1) {
 		if(adc_ac_rise) {
-			adc_samples_since_switch = 0;
 			
 			if(adc_discard_cycles == 0) {
 				if(config_power_phases == 2) {
@@ -162,7 +158,6 @@ int start_sampling() {
 	
 	adc_discard_cycles = 4;
 	adc_ac_rise = 0;
-	adc_samples_since_switch = 0;
 	
 	adc_actual_channel = 0;
 	adc_next_channel = 0;
