@@ -83,8 +83,6 @@ void user_init(void) {
 	
 	vTaskDelay(pdMS_TO_TICKS(500));
 	
-	events_init();
-	
 	debug("Initializing I2C bus.\n");
 	
 	if(i2c_init(I2C_BUS, SCL_PIN, SDA_PIN, I2C_FREQ_500K)) {
@@ -92,7 +90,11 @@ void user_init(void) {
 		return;
 	}
 	
+	events_init();
+	
 	init_rtc();
+	
+	load_configuration();
 	
 	button = 0;
 	for(int i = LED_COLOR_RED; i <= LED_COLOR_TEAL; i++) {
@@ -102,8 +104,6 @@ void user_init(void) {
 		
 		vTaskDelay(pdMS_TO_TICKS(400));
 	}
-	
-	load_configuration();
 	
 	if(button > 3
 		|| strlen(config_wifi_ssid) < 1
