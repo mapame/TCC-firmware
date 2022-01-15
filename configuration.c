@@ -28,7 +28,7 @@ typedef struct config_metadata_s {
 } config_metadata_t;
 
 const config_metadata_t configuration_table[] = {
-	{"wifi_ap_password",		's', "matawattap",	0, 0, (void*) &config_wifi_ap_password},
+	{"wifi_ap_password",		's', "aptcc1234",	0, 0, (void*) &config_wifi_ap_password},
 	{"wifi_ssid",				's', "",			1, 0, (void*) &config_wifi_ssid},
 	{"wifi_password",			's', "",			0, 0, (void*) &config_wifi_password},
 	{"mac_password",			's', "",			0, 0, (void*) &config_mac_password},
