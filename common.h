@@ -30,7 +30,7 @@
 #define MAX_DISCONNECTION_TIME_MS 5000
 #define MIN_DISCONNECTION_TIME_MS 200
 
-#define WIFI_AP_SSID "matawatt AP"
+#define WIFI_AP_SSID "Medidor TCC"
 
 typedef enum {
 	LED_OFF,
